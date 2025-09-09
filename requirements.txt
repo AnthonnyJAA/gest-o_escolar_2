@@ -1,0 +1,14 @@
+# Interface Gráfica
+tkinter  # Já incluído no Python padrão
+
+# Manipulação de Dados
+openpyxl>=3.0.9     # Para arquivos Excel
+pandas>=1.3.0       # Análise de dados (opcional)
+
+# Geração de Relatórios
+reportlab>=3.6.0    # PDFs
+matplotlib>=3.5.0   # Gráficos (opcional)
+Pillow>=8.2.0      # Manipulação de imagens
+
+# Utilitários
+python-dateutil>=2.8.0  # Manipulação de datas
