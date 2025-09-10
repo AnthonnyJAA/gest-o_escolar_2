@@ -262,11 +262,23 @@ class AlunoService:
         return historico
     
     def gerar_mensalidades_aluno(self, aluno_id):
-        """Gera mensalidades automáticas para novo aluno"""
+        """Gera mensalidades automáticas para novo aluno - SEM IMPORTAÇÃO CIRCULAR"""
         try:
-            from services.financeiro_service import FinanceiroService
-            financeiro_service = FinanceiroService()
-            return financeiro_service.gerar_mensalidades_aluno(aluno_id)
+            print(f"🔄 Iniciando geração de mensalidades para aluno ID: {aluno_id}")
+            
+            # Importar apenas quando necessário para evitar ciclo
+            from services.mensalidade_service import MensalidadeService
+            
+            mensalidade_service = MensalidadeService()
+            resultado = mensalidade_service.gerar_mensalidades_aluno(aluno_id)
+            
+            if resultado['success']:
+                print(f"✅ Mensalidades geradas: {resultado.get('mensalidades_criadas', 0)} parcelas")
+            else:
+                print(f"❌ Erro ao gerar mensalidades: {resultado.get('error', 'Erro desconhecido')}")
+                
+            return resultado
         except Exception as e:
-            print(f"Erro ao gerar mensalidades: {e}")
-            return {'success': False, 'error': str(e)}
+            erro_msg = f"Erro inesperado ao gerar mensalidades: {str(e)}"
+            print(f"❌ {erro_msg}")
+            return {'success': False, 'error': erro_msg}

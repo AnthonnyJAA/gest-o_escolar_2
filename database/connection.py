@@ -11,7 +11,7 @@ class DatabaseConnection:
         return sqlite3.connect(self.db_path)
     
     def init_database(self):
-        """Cria as tabelas se não existirem - SEM EMAIL"""
+        """Cria as tabelas se não existirem"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -31,7 +31,7 @@ class DatabaseConnection:
             )
         """)
         
-        # Tabela ALUNOS (SEM EMAIL)
+        # Tabela ALUNOS
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS alunos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,12 +44,13 @@ class DatabaseConnection:
                 nacionalidade TEXT DEFAULT 'Brasileira',
                 turma_id INTEGER NOT NULL,
                 status TEXT DEFAULT 'Ativo',
+                data_matricula DATE DEFAULT (date('now')),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (turma_id) REFERENCES turmas (id)
             )
         """)
         
-        # Tabela RESPONSÁVEIS FINANCEIROS (SEM EMAIL)
+        # Tabela RESPONSÁVEIS FINANCEIROS
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS responsaveis_financeiros (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,9 +94,15 @@ class DatabaseConnection:
             )
         """)
         
+        # Tentar adicionar colunas novas (migração segura)
+        try:
+            cursor.execute("ALTER TABLE alunos ADD COLUMN data_matricula DATE DEFAULT (date('now'))")
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe
+        
         conn.commit()
         conn.close()
-        print("✅ Banco de dados inicializado SEM EMAIL!")
+        print("✅ Banco de dados inicializado!")
 
 # Instância global do banco
 db = DatabaseConnection()

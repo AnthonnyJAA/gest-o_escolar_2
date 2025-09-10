@@ -15,11 +15,11 @@ class DashboardService:
         try:
             # Total de alunos ativos
             cursor.execute("SELECT COUNT(*) FROM alunos WHERE status = 'Ativo'")
-            total_alunos = cursor.fetchone()[0]
+            total_alunos = cursor.fetchone()[0] or 0
             
             # Total de turmas
             cursor.execute("SELECT COUNT(*) FROM turmas")
-            total_turmas = cursor.fetchone()[0]
+            total_turmas = cursor.fetchone()[0] or 0
             
             # Receita do mês atual
             mes_atual = date.today().strftime('%Y-%m')
@@ -29,7 +29,7 @@ class DashboardService:
                 WHERE status = 'Pago' 
                 AND strftime('%Y-%m', data_pagamento) = ?
             """, (mes_atual,))
-            receita_mes = cursor.fetchone()[0]
+            receita_mes = cursor.fetchone()[0] or 0
             
             # Mensalidades pendentes
             cursor.execute("""
@@ -39,7 +39,7 @@ class DashboardService:
                 WHERE p.status = 'Pendente' 
                 AND a.status = 'Ativo'
             """)
-            pendentes = cursor.fetchone()[0]
+            pendentes = cursor.fetchone()[0] or 0
             
             # Mensalidades atrasadas
             cursor.execute("""
@@ -49,7 +49,7 @@ class DashboardService:
                 WHERE (p.status = 'Atrasado' OR (p.status = 'Pendente' AND date(p.data_vencimento) < date('now')))
                 AND a.status = 'Ativo'
             """)
-            atrasadas = cursor.fetchone()[0]
+            atrasadas = cursor.fetchone()[0] or 0
             
             conn.close()
             
@@ -98,7 +98,7 @@ class DashboardService:
                 WHERE p.status IN ('Pendente', 'Atrasado')
                 AND a.status = 'Ativo'
             """)
-            valor_aberto = cursor.fetchone()[0]
+            valor_aberto = cursor.fetchone()[0] or 0
             
             # Próximo vencimento
             cursor.execute("""
@@ -110,7 +110,7 @@ class DashboardService:
                 AND a.status = 'Ativo'
             """)
             proximo_venc_row = cursor.fetchone()
-            proximo_vencimento = format_date(proximo_venc_row[0]) if proximo_venc_row[0] else "N/A"
+            proximo_vencimento = format_date(proximo_venc_row[0]) if proximo_venc_row and proximo_venc_row[0] else "N/A"
             
             # Meta mensal (valor estimado baseado nas turmas)
             cursor.execute("""
@@ -119,7 +119,7 @@ class DashboardService:
                 INNER JOIN alunos a ON t.id = a.turma_id
                 WHERE a.status = 'Ativo'
             """)
-            meta_mensal = cursor.fetchone()[0]
+            meta_mensal = cursor.fetchone()[0] or 0
             
             conn.close()
             

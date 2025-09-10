@@ -103,23 +103,20 @@ class FinanceiroService:
         except:
             return 'Pendente'
     
-    def registrar_pagamento(self, pagamento_id, data_pagamento, valor_pago, desconto=0, multa=0, observacoes=""):
-        """Registra pagamento manualmente"""
+    def registrar_pagamento(self, pagamento_id, data_pagamento, valor_pago=None, desconto=0, multa=0, observacoes=""):
+        """Registra pagamento simples"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
         try:
-            # Calcular valor final
+            # Buscar dados do pagamento
             cursor.execute("SELECT valor_original FROM pagamentos WHERE id = ?", (pagamento_id,))
             row = cursor.fetchone()
             if not row:
                 return {'success': False, 'error': 'Mensalidade não encontrada'}
             
             valor_original = row[0]
-            valor_final = valor_original - desconto + multa
-            
-            if valor_pago is None:
-                valor_pago = valor_final
+            valor_final = valor_pago if valor_pago is not None else valor_original
             
             # Atualizar pagamento
             cursor.execute("""
@@ -131,7 +128,7 @@ class FinanceiroService:
                     status = 'Pago',
                     observacoes = ?
                 WHERE id = ?
-            """, (data_pagamento, valor_pago, desconto, multa, observacoes, pagamento_id))
+            """, (data_pagamento, valor_final, desconto, multa, observacoes, pagamento_id))
             
             conn.commit()
             conn.close()
@@ -179,85 +176,83 @@ class FinanceiroService:
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
-        # Base das queries
-        base_where = "WHERE p.status = 'Pago'"
-        params = []
-        
-        if periodo:
-            if periodo['tipo'] == 'dia':
-                base_where += " AND date(p.data_pagamento) = ?"
-                params.append(periodo['data'])
-            elif periodo['tipo'] == 'mes':
+        try:
+            # Base das queries
+            base_where = "WHERE p.status = 'Pago'"
+            params = []
+            
+            if periodo:
+                if periodo['tipo'] == 'dia':
+                    base_where += " AND date(p.data_pagamento) = ?"
+                    params.append(periodo['data'])
+                elif periodo['tipo'] == 'mes':
+                    base_where += " AND strftime('%Y-%m', p.data_pagamento) = ?"
+                    params.append(periodo['mes_ano'])
+                elif periodo['tipo'] == 'ano':
+                    base_where += " AND strftime('%Y', p.data_pagamento) = ?"
+                    params.append(str(periodo['ano']))
+            
+            # Receita do período (corrigir para receita do mês atual se não especificado)
+            if not periodo:
+                mes_atual = date.today().strftime('%Y-%m')
                 base_where += " AND strftime('%Y-%m', p.data_pagamento) = ?"
-                params.append(periodo['mes_ano'])
-            elif periodo['tipo'] == 'ano':
-                base_where += " AND strftime('%Y', p.data_pagamento) = ?"
-                params.append(str(periodo['ano']))
-        
-        # Receita do período (corrigir para receita do mês atual se não especificado)
-        if not periodo:
-            mes_atual = date.today().strftime('%Y-%m')
-            base_where += " AND strftime('%Y-%m', p.data_pagamento) = ?"
-            params.append(mes_atual)
-        
-        cursor.execute(f"""
-            SELECT COALESCE(SUM(p.valor_final), 0) as receita
-            FROM pagamentos p {base_where}
-        """, params)
-        receita_periodo = cursor.fetchone()[0]
-        
-        # Contadores por status
-        cursor.execute("""
-            SELECT 
-                SUM(CASE WHEN status = 'Pago' THEN 1 ELSE 0 END) as pagos,
-                SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
-                SUM(CASE WHEN status = 'Atrasado' OR (status = 'Pendente' AND date(data_vencimento) < date('now')) THEN 1 ELSE 0 END) as atrasados,
-                COUNT(*) as total
-            FROM pagamentos p
-            INNER JOIN alunos a ON p.aluno_id = a.id
-            WHERE a.status = 'Ativo'
-        """)
-        contadores = cursor.fetchone()
-        
-        # Valores pendentes e em atraso
-        cursor.execute("""
-            SELECT 
-                COALESCE(SUM(CASE WHEN p.status = 'Pendente' THEN p.valor_final ELSE 0 END), 0) as valor_pendente,
-                COALESCE(SUM(CASE WHEN p.status = 'Atrasado' OR (p.status = 'Pendente' AND date(p.data_vencimento) < date('now')) THEN p.valor_final ELSE 0 END), 0) as valor_atraso
-            FROM pagamentos p
-            INNER JOIN alunos a ON p.aluno_id = a.id
-            WHERE a.status = 'Ativo'
-        """)
-        valores = cursor.fetchone()
-        
-        # Receita por dia dos últimos 30 dias (para gráfico)
-        cursor.execute("""
-            SELECT 
-                date(p.data_pagamento) as data,
-                SUM(p.valor_final) as valor
-            FROM pagamentos p
-            WHERE p.status = 'Pago' 
-            AND date(p.data_pagamento) >= date('now', '-30 days')
-            GROUP BY date(p.data_pagamento)
-            ORDER BY data
-        """)
-        receitas_diarias = cursor.fetchall()
-        
-        conn.close()
-        
-        return {
-            'receita_periodo': receita_periodo or 0,
-            'receita_mes': receita_periodo or 0,  # Adicionar para compatibilidade
-            'total_pagos': contadores[0] or 0,
-            'total_pendentes': contadores[1] or 0, 
-            'total_atrasados': contadores[2] or 0,
-            'total_inadimplentes': contadores[2] or 0,  # Alias para dashboard
-            'total_mensalidades': contadores[3] or 0,
-            'valor_pendente': valores[0] or 0,
-            'valor_atraso': valores[1] or 0,
-            'valor_em_atraso': valores[1] or 0,  # Alias para dashboard
-            'receitas_diarias': [{'data': r[0], 'valor': r[1]} for r in receitas_diarias]
-        }
+                params.append(mes_atual)
+            
+            cursor.execute(f"""
+                SELECT COALESCE(SUM(p.valor_final), 0) as receita
+                FROM pagamentos p {base_where}
+            """, params)
+            receita_periodo = cursor.fetchone()[0]
+            
+            # Contadores por status
+            cursor.execute("""
+                SELECT 
+                    SUM(CASE WHEN status = 'Pago' THEN 1 ELSE 0 END) as pagos,
+                    SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
+                    SUM(CASE WHEN status = 'Atrasado' OR (status = 'Pendente' AND date(data_vencimento) < date('now')) THEN 1 ELSE 0 END) as atrasados,
+                    COUNT(*) as total
+                FROM pagamentos p
+                INNER JOIN alunos a ON p.aluno_id = a.id
+                WHERE a.status = 'Ativo'
+            """)
+            contadores = cursor.fetchone()
+            
+            # Valores pendentes e em atraso
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(CASE WHEN p.status = 'Pendente' THEN p.valor_final ELSE 0 END), 0) as valor_pendente,
+                    COALESCE(SUM(CASE WHEN p.status = 'Atrasado' OR (p.status = 'Pendente' AND date(p.data_vencimento) < date('now')) THEN p.valor_final ELSE 0 END), 0) as valor_atraso
+                FROM pagamentos p
+                INNER JOIN alunos a ON p.aluno_id = a.id
+                WHERE a.status = 'Ativo'
+            """)
+            valores = cursor.fetchone()
+            
+            conn.close()
+            
+            return {
+                'receita_periodo': receita_periodo or 0,
+                'receita_mes': receita_periodo or 0,
+                'total_pagos': contadores[0] or 0,
+                'total_pendentes': contadores[1] or 0, 
+                'total_atrasados': contadores[2] or 0,
+                'total_inadimplentes': contadores[2] or 0,
+                'total_mensalidades': contadores[3] or 0,
+                'valor_pendente': valores[0] or 0,
+                'valor_atraso': valores[1] or 0,
+                'valor_em_atraso': valores[1] or 0,
+                'receitas_diarias': []
+            }
+            
+        except Exception as e:
+            conn.close()
+            print(f"Erro ao obter estatísticas financeiras: {e}")
+            return {
+                'receita_periodo': 0, 'receita_mes': 0, 'total_pagos': 0,
+                'total_pendentes': 0, 'total_atrasados': 0, 'total_inadimplentes': 0,
+                'total_mensalidades': 0, 'valor_pendente': 0, 'valor_atraso': 0,
+                'valor_em_atraso': 0, 'receitas_diarias': []
+            }
     
     def listar_turmas(self):
         """Lista turmas para filtros"""
@@ -337,52 +332,4 @@ class FinanceiroService:
         except sqlite3.Error as e:
             conn.rollback()
             conn.close()
-            return {'success': False, 'error': str(e)}
-    
-    def obter_fluxo_caixa_mensal(self, ano=None):
-        """Obtém fluxo de caixa mensal"""
-        if not ano:
-            ano = date.today().year
-        
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                strftime('%m', p.data_pagamento) as mes,
-                SUM(p.valor_final) as receita
-            FROM pagamentos p
-            WHERE p.status = 'Pago' 
-            AND strftime('%Y', p.data_pagamento) = ?
-            GROUP BY strftime('%m', p.data_pagamento)
-            ORDER BY mes
-        """, (str(ano),))
-        
-        fluxo = {}
-        for row in cursor.fetchall():
-            mes_num = int(row[0])
-            fluxo[mes_num] = row[1]
-        
-        # Preencher meses sem dados com 0
-        meses_nome = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
-                      'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-        
-        resultado = []
-        for i in range(1, 13):
-            resultado.append({
-                'mes': i,
-                'mes_nome': meses_nome[i],
-                'receita': fluxo.get(i, 0)
-            })
-        
-        conn.close()
-        return resultado
-    
-    def gerar_mensalidades_aluno(self, aluno_id):
-        """Gera mensalidades para um aluno"""
-        try:
-            from services.mensalidade_service import MensalidadeService
-            mensalidade_service = MensalidadeService()
-            return mensalidade_service.gerar_mensalidades_aluno(aluno_id)
-        except Exception as e:
             return {'success': False, 'error': str(e)}
