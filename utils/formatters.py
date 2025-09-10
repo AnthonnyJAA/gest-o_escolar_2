@@ -1,131 +1,52 @@
-import re
 from datetime import datetime, date
+import re
 
-def format_currency(value):
-    """Formata valor como moeda brasileira"""
-    if value is None:
-        return "R$ 0,00"
-    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-
-def format_phone(phone):
-    """Formata telefone brasileiro"""
-    if not phone:
+def format_date(date_str):
+    """Formata data para exibição"""
+    if not date_str:
         return ""
     
-    numbers = re.sub(r'\D', '', phone)
-    
-    if len(numbers) == 11:
-        return f"({numbers[:2]}) {numbers[2:7]}-{numbers[7:]}"
-    elif len(numbers) == 10:
-        return f"({numbers[:2]}) {numbers[2:6]}-{numbers[6:]}"
-    else:
-        return phone
+    try:
+        if isinstance(date_str, str):
+            if '-' in date_str:  # Formato YYYY-MM-DD
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                return date_obj.strftime('%d/%m/%Y')
+            elif '/' in date_str:  # Formato DD/MM/YYYY
+                return date_str
+        elif isinstance(date_str, date):
+            return date_str.strftime('%d/%m/%Y')
+        
+        return str(date_str)
+    except:
+        return str(date_str)
 
-def validate_phone(phone):
-    """Valida telefone brasileiro"""
-    if not phone:
-        return True  # Telefone é opcional
-    
-    numbers = re.sub(r'\D', '', phone)
-    return len(numbers) in [10, 11]
-
-def format_cpf(cpf):
-    """Formata CPF brasileiro"""
-    if not cpf:
-        return ""
-    
-    numbers = re.sub(r'\D', '', cpf)
-    
-    if len(numbers) >= 11:
-        return f"{numbers[:3]}.{numbers[3:6]}.{numbers[6:9]}-{numbers[9:11]}"
-    elif len(numbers) >= 9:
-        return f"{numbers[:3]}.{numbers[3:6]}.{numbers[6:9]}-{numbers[9:]}"
-    elif len(numbers) >= 6:
-        return f"{numbers[:3]}.{numbers[3:6]}.{numbers[6:]}"
-    elif len(numbers) >= 3:
-        return f"{numbers[:3]}.{numbers[3:]}"
-    else:
-        return numbers
-
-def validate_cpf(cpf):
-    """Valida CPF brasileiro"""
-    if not cpf:
-        return True  # CPF é opcional
-    
-    # Remove formatação
-    numbers = re.sub(r'\D', '', cpf)
-    
-    # Deve ter 11 dígitos
-    if len(numbers) != 11:
-        return False
-    
-    # Verifica se todos os dígitos são iguais
-    if numbers == numbers[0] * 11:
-        return False
-    
-    # Calcula primeiro dígito verificador
-    sum1 = sum(int(numbers[i]) * (10 - i) for i in range(9))
-    digit1 = (sum1 * 10) % 11
-    if digit1 == 10:
-        digit1 = 0
-    
-    # Calcula segundo dígito verificador
-    sum2 = sum(int(numbers[i]) * (11 - i) for i in range(10))
-    digit2 = (sum2 * 10) % 11
-    if digit2 == 10:
-        digit2 = 0
-    
-    # Verifica se os dígitos calculados conferem
-    return int(numbers[9]) == digit1 and int(numbers[10]) == digit2
-
-def format_date(date_input):
-    """Formata data para DD/MM/YYYY"""
-    if not date_input:
-        return ""
-    
-    if isinstance(date_input, str):
-        try:
-            if len(date_input) == 10 and date_input[4] == '-':
-                # Formato YYYY-MM-DD para DD/MM/YYYY
-                parts = date_input.split('-')
-                return f"{parts[2]}/{parts[1]}/{parts[0]}"
-            else:
-                return date_input
-        except:
-            return date_input
-    
-    if isinstance(date_input, (date, datetime)):
-        return date_input.strftime('%d/%m/%Y')
-    
-    return str(date_input)
-
-def parse_date(date_string):
-    """Converte DD/MM/YYYY para YYYY-MM-DD"""
-    if not date_string:
+def parse_date(date_str):
+    """Converte data DD/MM/YYYY para YYYY-MM-DD"""
+    if not date_str:
         return None
     
     try:
-        if '/' in date_string:
-            parts = date_string.split('/')
+        if '/' in date_str:
+            parts = date_str.split('/')
             if len(parts) == 3:
-                day, month, year = parts
-                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-        return date_string
+                return f"{parts[2]}-{parts[1]:0>2}-{parts[0]:0>2}"
+        return date_str
     except:
-        return date_string
+        return None
 
-def validate_date(date_string):
+def validate_date(date_str):
     """Valida formato de data DD/MM/YYYY"""
-    if not date_string:
+    if not date_str:
         return False
     
     try:
-        if len(date_string) != 10 or date_string.count('/') != 2:
-            return False
-        
-        day, month, year = date_string.split('/')
-        datetime.strptime(f"{year}-{month}-{day}", '%Y-%m-%d')
-        return True
+        if '/' in date_str:
+            parts = date_str.split('/')
+            if len(parts) == 3:
+                day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+                date(year, month, day)
+                return True
+        return False
     except:
         return False
 
@@ -136,32 +57,98 @@ def calculate_age(birth_date):
     
     try:
         if isinstance(birth_date, str):
-            if '/' in birth_date:
-                # DD/MM/YYYY
-                day, month, year = birth_date.split('/')
-                birth_date = date(int(year), int(month), int(day))
-            elif '-' in birth_date:
-                # YYYY-MM-DD
-                birth_date = datetime.strptime(birth_date, '%Y-%m-%d').date()
+            if '-' in birth_date:
+                birth = datetime.strptime(birth_date, '%Y-%m-%d').date()
+            else:
+                return 0
+        elif isinstance(birth_date, date):
+            birth = birth_date
+        else:
+            return 0
         
         today = date.today()
-        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+        age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
         return age
     except:
         return 0
 
-# Função adicional para validar números (se necessário)
-def validate_number(value):
-    """Valida se é um número"""
+def format_currency(value):
+    """Formata valor como moeda brasileira"""
+    if value is None:
+        value = 0
+    
     try:
-        float(value)
-        return True
-    except (ValueError, TypeError):
-        return False
-
-def format_number(value, decimals=2):
-    """Formata número com casas decimais"""
-    try:
-        return f"{float(value):.{decimals}f}"
+        return f"R$ {float(value):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except:
-        return "0.00"
+        return "R$ 0,00"
+
+def format_cpf(cpf):
+    """Formata CPF"""
+    if not cpf:
+        return ""
+    
+    # Remove tudo que não é número
+    numbers = re.sub(r'\D', '', cpf)
+    
+    # Limita a 11 dígitos
+    numbers = numbers[:11]
+    
+    if len(numbers) <= 3:
+        return numbers
+    elif len(numbers) <= 6:
+        return f"{numbers[:3]}.{numbers[3:]}"
+    elif len(numbers) <= 9:
+        return f"{numbers[:3]}.{numbers[3:6]}.{numbers[6:]}"
+    else:
+        return f"{numbers[:3]}.{numbers[3:6]}.{numbers[6:9]}-{numbers[9:]}"
+
+def validate_cpf(cpf):
+    """Valida CPF"""
+    if not cpf:
+        return False
+    
+    # Remove formatação
+    numbers = re.sub(r'\D', '', cpf)
+    
+    # Deve ter 11 dígitos
+    if len(numbers) != 11:
+        return False
+    
+    # Verifica se não são todos iguais
+    if len(set(numbers)) == 1:
+        return False
+    
+    return True
+
+def format_phone(phone):
+    """Formata telefone"""
+    if not phone:
+        return ""
+    
+    # Remove tudo que não é número
+    numbers = re.sub(r'\D', '', phone)
+    
+    # Limitar a 11 dígitos
+    numbers = numbers[:11]
+    
+    if len(numbers) == 0:
+        return ""
+    elif len(numbers) <= 2:
+        return f"({numbers}"
+    elif len(numbers) <= 6:
+        return f"({numbers[:2]}) {numbers[2:]}"
+    elif len(numbers) <= 7:
+        return f"({numbers[:2]}) {numbers[2:7]}"
+    else:
+        if len(numbers) == 10:
+            return f"({numbers[:2]}) {numbers[2:6]}-{numbers[6:]}"
+        else:
+            return f"({numbers[:2]}) {numbers[2:7]}-{numbers[7:]}"
+
+def validate_phone(phone):
+    """Valida telefone"""
+    if not phone:
+        return False
+    
+    numbers = re.sub(r'\D', '', phone)
+    return len(numbers) >= 10

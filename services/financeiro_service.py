@@ -25,7 +25,7 @@ class FinanceiroService:
             FROM pagamentos p
             INNER JOIN alunos a ON p.aluno_id = a.id
             INNER JOIN turmas t ON a.turma_id = t.id
-            LEFT JOIN responsaveis_financeiros rf ON a.id = rf.aluno_id AND rf.principal = 1
+            LEFT JOIN responsaveis rf ON a.id = rf.aluno_id AND rf.principal = 1
             WHERE 1=1
         """
         
@@ -103,8 +103,78 @@ class FinanceiroService:
         except:
             return 'Pendente'
     
+    def buscar_mensalidade_por_id(self, mensalidade_id):
+        """Busca mensalidade completa por ID"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT p.*, a.nome as aluno_nome 
+            FROM pagamentos p
+            INNER JOIN alunos a ON p.aluno_id = a.id
+            WHERE p.id = ?
+        """, (mensalidade_id,))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {
+                'id': row[0],
+                'aluno_id': row[1],
+                'mes_referencia': row[2],
+                'valor_original': row[3],
+                'desconto_aplicado': row[4] or 0,
+                'multa_aplicada': row[5] or 0,
+                'valor_final': row[6],
+                'data_vencimento': row[7],
+                'data_pagamento': row[8],
+                'status': row[9],
+                'observacoes': row[11] if len(row) > 11 else '',
+                'aluno_nome': row[-1]
+            }
+        return None
+    
+    def processar_pagamento(self, dados_pagamento):
+        """Processa pagamento com desconto e multa aplicados na hora"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Converter data de pagamento
+            data_pagamento_str = dados_pagamento['data_pagamento']
+            try:
+                data_pagamento = datetime.strptime(data_pagamento_str, '%d/%m/%Y').strftime('%Y-%m-%d')
+            except:
+                data_pagamento = date.today().strftime('%Y-%m-%d')
+            
+            # Atualizar pagamento
+            cursor.execute("""
+                UPDATE pagamentos 
+                SET desconto_aplicado = ?, multa_aplicada = ?, valor_final = ?,
+                    data_pagamento = ?, status = 'Pago', observacoes = ?
+                WHERE id = ?
+            """, (
+                dados_pagamento['desconto_aplicado'],
+                dados_pagamento['multa_aplicada'],
+                dados_pagamento['valor_final'],
+                data_pagamento,
+                dados_pagamento.get('observacoes', ''),
+                dados_pagamento['mensalidade_id']
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return {'success': True}
+            
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            return {'success': False, 'error': str(e)}
+    
     def registrar_pagamento(self, pagamento_id, data_pagamento, valor_pago=None, desconto=0, multa=0, observacoes=""):
-        """Registra pagamento simples"""
+        """Registra pagamento simples (método legacy)"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
@@ -164,6 +234,7 @@ class FinanceiroService:
             
             conn.commit()
             conn.close()
+            
             return {'success': True}
             
         except sqlite3.Error as e:
@@ -287,7 +358,7 @@ class FinanceiroService:
             FROM alunos a
             INNER JOIN turmas t ON a.turma_id = t.id
             INNER JOIN pagamentos p ON a.id = p.aluno_id
-            LEFT JOIN responsaveis_financeiros rf ON a.id = rf.aluno_id AND rf.principal = 1
+            LEFT JOIN responsaveis rf ON a.id = rf.aluno_id AND rf.principal = 1
             WHERE (p.status = 'Atrasado' OR (p.status = 'Pendente' AND date(p.data_vencimento) < date('now')))
             AND a.status = 'Ativo'
             GROUP BY a.id, a.nome, t.nome, rf.nome, rf.telefone
@@ -333,3 +404,112 @@ class FinanceiroService:
             conn.rollback()
             conn.close()
             return {'success': False, 'error': str(e)}
+    
+    def obter_resumo_financeiro_periodo(self, data_inicio=None, data_fim=None):
+        """Obtém resumo financeiro de um período específico"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            where_clause = "WHERE 1=1"
+            params = []
+            
+            if data_inicio and data_fim:
+                where_clause += " AND p.data_vencimento BETWEEN ? AND ?"
+                params.extend([data_inicio, data_fim])
+            
+            cursor.execute(f"""
+                SELECT 
+                    COUNT(*) as total_mensalidades,
+                    COUNT(CASE WHEN p.status = 'Pago' THEN 1 END) as pagas,
+                    COUNT(CASE WHEN p.status = 'Pendente' THEN 1 END) as pendentes,
+                    COUNT(CASE WHEN p.status = 'Atrasado' THEN 1 END) as atrasadas,
+                    SUM(p.valor_original) as valor_total_original,
+                    SUM(CASE WHEN p.status = 'Pago' THEN p.valor_final ELSE 0 END) as valor_recebido,
+                    SUM(CASE WHEN p.status != 'Pago' THEN p.valor_final ELSE 0 END) as valor_pendente,
+                    SUM(p.desconto_aplicado) as total_descontos,
+                    SUM(p.multa_aplicada) as total_multas
+                FROM pagamentos p
+                INNER JOIN alunos a ON p.aluno_id = a.id
+                {where_clause}
+                AND a.status = 'Ativo'
+            """, params)
+            
+            resultado = cursor.fetchone()
+            conn.close()
+            
+            if resultado:
+                return {
+                    'total_mensalidades': resultado[0] or 0,
+                    'pagas': resultado[1] or 0,
+                    'pendentes': resultado[2] or 0,
+                    'atrasadas': resultado[3] or 0,
+                    'valor_total_original': resultado[4] or 0,
+                    'valor_recebido': resultado[5] or 0,
+                    'valor_pendente': resultado[6] or 0,
+                    'total_descontos': resultado[7] or 0,
+                    'total_multas': resultado[8] or 0
+                }
+            
+            return {
+                'total_mensalidades': 0, 'pagas': 0, 'pendentes': 0, 'atrasadas': 0,
+                'valor_total_original': 0, 'valor_recebido': 0, 'valor_pendente': 0,
+                'total_descontos': 0, 'total_multas': 0
+            }
+            
+        except Exception as e:
+            conn.close()
+            print(f"Erro ao obter resumo financeiro: {e}")
+            return None
+    
+    def gerar_relatorio_mensal(self, mes, ano):
+        """Gera relatório financeiro mensal detalhado"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            mes_referencia = f"{ano}-{mes:02d}"
+            
+            cursor.execute("""
+                SELECT 
+                    a.nome as aluno_nome,
+                    t.nome as turma_nome,
+                    p.valor_original,
+                    p.desconto_aplicado,
+                    p.multa_aplicada,
+                    p.valor_final,
+                    p.data_vencimento,
+                    p.data_pagamento,
+                    p.status,
+                    rf.nome as responsavel_nome
+                FROM pagamentos p
+                INNER JOIN alunos a ON p.aluno_id = a.id
+                INNER JOIN turmas t ON a.turma_id = t.id
+                LEFT JOIN responsaveis rf ON a.id = rf.aluno_id AND rf.principal = 1
+                WHERE p.mes_referencia = ?
+                AND a.status = 'Ativo'
+                ORDER BY t.nome, a.nome
+            """, (mes_referencia,))
+            
+            mensalidades = []
+            for row in cursor.fetchall():
+                mensalidades.append({
+                    'aluno_nome': row[0],
+                    'turma_nome': row[1],
+                    'valor_original': row[2],
+                    'desconto_aplicado': row[3] or 0,
+                    'multa_aplicada': row[4] or 0,
+                    'valor_final': row[5],
+                    'data_vencimento': row[6],
+                    'data_pagamento': row[7],
+                    'status': row[8],
+                    'responsavel_nome': row[9] or 'N/I'
+                })
+            
+            conn.close()
+            return mensalidades
+            
+        except Exception as e:
+            conn.close()
+            print(f"Erro ao gerar relatório mensal: {e}")
+            return []
