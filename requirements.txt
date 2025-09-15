@@ -1,14 +1,11 @@
-# Interface Gráfica
-tkinter  # Já incluído no Python padrão
+# requirements.txt
+# Dependências necessárias para os gráficos interativos
 
-# Manipulação de Dados
-openpyxl>=3.0.9     # Para arquivos Excel
-pandas>=1.3.0       # Análise de dados (opcional)
+matplotlib>=3.5.0
+numpy>=1.21.0
 
-# Geração de Relatórios
-reportlab>=3.6.0    # PDFs
-matplotlib>=3.5.0   # Gráficos (opcional)
-Pillow>=8.2.0      # Manipulação de imagens
+# Instruções de instalação:
+# pip install matplotlib numpy
 
-# Utilitários
-python-dateutil>=2.8.0  # Manipulação de datas
+# Nota: Tkinter já vem incluído com Python
+# SQLite3 também é padrão no Python
