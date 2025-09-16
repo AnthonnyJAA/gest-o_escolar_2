@@ -1,101 +1,74 @@
 from database.connection import db
 import sqlite3
-from datetime import datetime, date, timedelta
-import calendar
-from utils.formatters import format_date, format_currency
+from datetime import datetime, date
 
-class TransferenciaAvancadaService:
+class TransferenciaService:
     def __init__(self):
         self.db = db
-        self.init_advanced_tables()
+        # Verificar e corrigir estrutura da tabela
+        self._verificar_estrutura_historico()
 
-    def init_advanced_tables(self):
-        """Cria tabelas avançadas para transferências"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
+    def _verificar_estrutura_historico(self):
+        """Verifica e corrige estrutura da tabela de histórico"""
         try:
-            # Tabela de histórico de transferências (expandida)
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Verificar se tabela existe
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS historico_transferencias (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    aluno_id INTEGER NOT NULL,
-                    turma_origem_id INTEGER,
-                    turma_destino_id INTEGER,
-                    tipo_transferencia TEXT NOT NULL,  -- 'MESMO_ANO', 'NOVO_ANO', 'DESLIGAMENTO'
-                    ano_letivo_origem TEXT,
-                    ano_letivo_destino TEXT,
-                    valor_mensalidade_anterior DECIMAL(10,2),
-                    valor_mensalidade_novo DECIMAL(10,2),
-                    alterou_mensalidade INTEGER DEFAULT 0,  -- 0=não, 1=sim
-                    data_transferencia DATE NOT NULL,
-                    motivo TEXT,
-                    observacoes TEXT,
-                    usuario_responsavel TEXT DEFAULT 'Sistema',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (aluno_id) REFERENCES alunos (id),
-                    FOREIGN KEY (turma_origem_id) REFERENCES turmas (id),
-                    FOREIGN KEY (turma_destino_id) REFERENCES turmas (id)
-                )
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='historico_transferencias'
             """)
             
-            # Tabela de contratos financeiros (para histórico separado por ano)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS contratos_financeiros (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    aluno_id INTEGER NOT NULL,
-                    turma_id INTEGER NOT NULL,
-                    ano_letivo TEXT NOT NULL,
-                    valor_mensalidade DECIMAL(10,2) NOT NULL,
-                    data_inicio DATE NOT NULL,
-                    data_fim DATE,
-                    status TEXT DEFAULT 'ATIVO',  -- 'ATIVO', 'ENCERRADO', 'SUSPENSO'
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (aluno_id) REFERENCES alunos (id),
-                    FOREIGN KEY (turma_id) REFERENCES turmas (id),
-                    UNIQUE(aluno_id, ano_letivo)
-                )
-            """)
-            
-            # Atualizar tabela de pagamentos com referência ao contrato
-            try:
+            if not cursor.fetchone():
+                # Criar tabela se não existir
                 cursor.execute("""
-                    ALTER TABLE pagamentos 
-                    ADD COLUMN contrato_financeiro_id INTEGER 
-                    REFERENCES contratos_financeiros(id)
+                    CREATE TABLE historico_transferencias (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        aluno_id INTEGER NOT NULL,
+                        turma_origem_id INTEGER,
+                        turma_destino_id INTEGER,
+                        motivo TEXT NOT NULL,
+                        observacoes TEXT,
+                        data_transferencia TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        tipo_transferencia TEXT DEFAULT 'TRANSFERENCIA',
+                        FOREIGN KEY (aluno_id) REFERENCES alunos (id),
+                        FOREIGN KEY (turma_origem_id) REFERENCES turmas (id),
+                        FOREIGN KEY (turma_destino_id) REFERENCES turmas (id)
+                    )
                 """)
-            except sqlite3.OperationalError:
-                pass  # Coluna já existe
-            
-            # Adicionar campos ao aluno se não existir
-            try:
-                cursor.execute("ALTER TABLE alunos ADD COLUMN data_desligamento DATE")
-            except sqlite3.OperationalError:
-                pass  # Campo já existe
+                print("✅ Tabela historico_transferencias criada")
+            else:
+                # Verificar se coluna tipo_transferencia existe
+                cursor.execute("PRAGMA table_info(historico_transferencias)")
+                colunas = [col[1] for col in cursor.fetchall()]
                 
-            try:
-                cursor.execute("ALTER TABLE alunos ADD COLUMN motivo_desligamento TEXT")
-            except sqlite3.OperationalError:
-                pass  # Campo já existe
+                if 'tipo_transferencia' not in colunas:
+                    cursor.execute("""
+                        ALTER TABLE historico_transferencias 
+                        ADD COLUMN tipo_transferencia TEXT DEFAULT 'TRANSFERENCIA'
+                    """)
+                    print("✅ Coluna tipo_transferencia adicionada")
             
             conn.commit()
             conn.close()
             
         except sqlite3.Error as e:
-            conn.close()
-            print(f"Erro ao criar tabelas avançadas: {e}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            print(f"❌ Erro ao verificar estrutura: {e}")
 
     def listar_turmas_para_filtro(self):
-        """Lista turmas formatadas para filtro"""
+        """Lista turmas para filtros"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
         try:
             cursor.execute("""
-                SELECT id, nome, serie, ano_letivo, valor_mensalidade_padrao,
-                       (SELECT COUNT(*) FROM alunos WHERE turma_id = t.id AND status = 'Ativo') as total_alunos
-                FROM turmas t
-                ORDER BY ano_letivo, serie, nome
+                SELECT id, nome, serie, ano_letivo
+                FROM turmas
+                ORDER BY ano_letivo DESC, serie, nome
             """)
             
             turmas = []
@@ -105,9 +78,7 @@ class TransferenciaAvancadaService:
                     'nome': row[1],
                     'serie': row[2],
                     'ano_letivo': row[3],
-                    'valor_mensalidade_padrao': row[4] or 0,
-                    'total_alunos': row[5],
-                    'display': f"{row[1]} - {row[2]} ({row[3]}) - {row[5]} aluno(s)"
+                    'display': f"{row[1]} - {row[2]} ({row[3]})"
                 }
                 turmas.append(turma)
             
@@ -116,7 +87,7 @@ class TransferenciaAvancadaService:
             
         except sqlite3.Error as e:
             conn.close()
-            print(f"Erro ao listar turmas: {e}")
+            print(f"❌ Erro ao listar turmas: {e}")
             return []
 
     def listar_alunos_por_turma(self, turma_id):
@@ -126,12 +97,18 @@ class TransferenciaAvancadaService:
         
         try:
             cursor.execute("""
-                SELECT a.id, a.nome, a.data_nascimento, a.valor_mensalidade, a.status,
-                       r.nome as responsavel_nome,
-                       strftime('%Y', 'now') - strftime('%Y', a.data_nascimento) as idade
+                SELECT 
+                    a.id,
+                    a.nome,
+                    a.data_nascimento,
+                    a.status,
+                    a.valor_mensalidade,
+                    t.nome as turma_nome,
+                    t.serie as turma_serie,
+                    (julianday('now') - julianday(a.data_nascimento)) / 365 as idade
                 FROM alunos a
-                LEFT JOIN responsaveis r ON a.responsavel_id = r.id
-                WHERE a.turma_id = ?
+                INNER JOIN turmas t ON a.turma_id = t.id
+                WHERE a.turma_id = ? AND a.status = 'Ativo'
                 ORDER BY a.nome
             """, (turma_id,))
             
@@ -141,10 +118,11 @@ class TransferenciaAvancadaService:
                     'id': row[0],
                     'nome': row[1],
                     'data_nascimento': row[2],
-                    'valor_mensalidade': row[3] or 0,
-                    'status': row[4],
-                    'responsavel_nome': row[5] or 'Não informado',
-                    'idade': row[6] or 0
+                    'status': row[3],
+                    'valor_mensalidade': row[4] or 0,
+                    'turma_nome': row[5],
+                    'turma_serie': row[6],
+                    'idade': int(row[7]) if row[7] else 0
                 }
                 alunos.append(aluno)
             
@@ -153,264 +131,111 @@ class TransferenciaAvancadaService:
             
         except sqlite3.Error as e:
             conn.close()
-            print(f"Erro ao listar alunos: {e}")
+            print(f"❌ Erro ao listar alunos da turma: {e}")
             return []
 
-    def detectar_tipo_transferencia(self, turma_origem_id, turma_destino_id, tipo_operacao='TRANSFERENCIA'):
-        """Detecta o tipo de transferência baseado nas turmas"""
-        if tipo_operacao == 'DESLIGAMENTO':
-            return 'DESLIGAMENTO'
-        
+    def transferir_aluno(self, aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes):
+        """Transfere aluno entre turmas - VERSÃO CORRIGIDA"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
         try:
-            # Buscar anos letivos das turmas
-            cursor.execute("SELECT ano_letivo FROM turmas WHERE id = ?", (turma_origem_id,))
-            ano_origem = cursor.fetchone()
-            
-            cursor.execute("SELECT ano_letivo FROM turmas WHERE id = ?", (turma_destino_id,))
-            ano_destino = cursor.fetchone()
-            
-            conn.close()
-            
-            if not ano_origem or not ano_destino:
-                return 'MESMO_ANO'  # Default
-            
-            if ano_origem[0] == ano_destino[0]:
-                return 'MESMO_ANO'
-            else:
-                return 'NOVO_ANO'
-                
-        except sqlite3.Error as e:
-            conn.close()
-            print(f"Erro ao detectar tipo de transferência: {e}")
-            return 'MESMO_ANO'
-
-    def obter_info_transferencia(self, aluno_id, turma_origem_id, turma_destino_id):
-        """Obtém informações detalhadas para a transferência"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # Buscar dados do aluno
+            # Verificar se aluno existe e está ativo
             cursor.execute("""
-                SELECT a.nome, a.valor_mensalidade, a.status,
-                       t_origem.nome as turma_origem, t_origem.ano_letivo as ano_origem,
-                       t_destino.nome as turma_destino, t_destino.ano_letivo as ano_destino,
-                       t_destino.valor_mensalidade_padrao as valor_destino
-                FROM alunos a
-                LEFT JOIN turmas t_origem ON a.turma_id = t_origem.id
-                LEFT JOIN turmas t_destino ON t_destino.id = ?
-                WHERE a.id = ? AND a.turma_id = ?
-            """, (turma_destino_id, aluno_id, turma_origem_id))
-            
-            resultado = cursor.fetchone()
-            
-            if not resultado:
-                conn.close()
-                return None
-            
-            info = {
-                'aluno_nome': resultado[0],
-                'valor_atual': resultado[1] or 0,
-                'status_aluno': resultado[2],
-                'turma_origem': resultado[3],
-                'ano_origem': resultado[4],
-                'turma_destino': resultado[5],
-                'ano_destino': resultado[6],
-                'valor_destino_padrao': resultado[7] or resultado[1] or 0,
-                'tipo_transferencia': self.detectar_tipo_transferencia(turma_origem_id, turma_destino_id),
-                'valores_diferentes': False
-            }
-            
-            # Verificar se os valores são diferentes
-            info['valores_diferentes'] = abs(info['valor_atual'] - info['valor_destino_padrao']) > 0.01
-            
-            # Contar mensalidades pendentes
-            cursor.execute("""
-                SELECT COUNT(*) as pendentes,
-                       COALESCE(SUM(valor_final), 0) as valor_pendente
-                FROM pagamentos p
-                WHERE p.aluno_id = ? 
-                AND p.status IN ('Pendente', 'Atrasado')
+                SELECT nome, status, turma_id 
+                FROM alunos 
+                WHERE id = ?
             """, (aluno_id,))
             
-            pendencias = cursor.fetchone()
-            info['mensalidades_pendentes'] = pendencias[0] or 0
-            info['valor_pendente'] = pendencias[1] or 0
+            aluno_data = cursor.fetchone()
+            if not aluno_data:
+                return {'success': False, 'error': 'Aluno não encontrado'}
             
-            conn.close()
-            return info
+            if aluno_data[1].lower() != 'ativo':
+                return {'success': False, 'error': f'Aluno {aluno_data[0]} não está ativo'}
             
-        except sqlite3.Error as e:
-            conn.close()
-            print(f"Erro ao obter info transferência: {e}")
-            return None
-
-    def transferir_aluno_mesmo_ano(self, aluno_id, turma_origem_id, turma_destino_id, 
-                                   alterar_valor=False, novo_valor=None, motivo="", observacoes=""):
-        """Cenário 1: Transferência dentro do mesmo ano letivo"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            conn.execute("BEGIN TRANSACTION")
+            if aluno_data[2] != turma_origem_id:
+                return {'success': False, 'error': f'Aluno não pertence à turma de origem especificada'}
             
-            # Obter informações
-            info = self.obter_info_transferencia(aluno_id, turma_origem_id, turma_destino_id)
-            if not info:
-                conn.rollback()
-                conn.close()
-                return {'success': False, 'error': 'Não foi possível obter informações da transferência'}
+            # Verificar se turma de destino existe
+            cursor.execute("SELECT nome, serie FROM turmas WHERE id = ?", (turma_destino_id,))
+            turma_destino = cursor.fetchone()
+            if not turma_destino:
+                return {'success': False, 'error': 'Turma de destino não encontrada'}
             
-            valor_anterior = info['valor_atual']
-            valor_novo = novo_valor if alterar_valor else valor_anterior
+            # Verificar se não é a mesma turma
+            if turma_origem_id == turma_destino_id:
+                return {'success': False, 'error': 'Turma de origem deve ser diferente da turma de destino'}
             
-            # Atualizar turma do aluno
+            # Executar transferência
             cursor.execute("""
                 UPDATE alunos 
-                SET turma_id = ?, valor_mensalidade = ?
+                SET turma_id = ?
                 WHERE id = ?
-            """, (turma_destino_id, valor_novo, aluno_id))
-            
-            # Se alterar valor, atualizar mensalidades não pagas
-            if alterar_valor and novo_valor is not None:
-                cursor.execute("""
-                    UPDATE pagamentos 
-                    SET valor_original = ?, 
-                        valor_final = ? + multa_aplicada + outros - desconto_aplicado
-                    WHERE aluno_id = ? 
-                    AND status IN ('Pendente', 'Atrasado')
-                """, (novo_valor, novo_valor, aluno_id))
-                
-                mensalidades_alteradas = cursor.rowcount
-            else:
-                mensalidades_alteradas = 0
+            """, (turma_destino_id, aluno_id))
             
             # Registrar no histórico
             cursor.execute("""
-                INSERT INTO historico_transferencias
-                (aluno_id, turma_origem_id, turma_destino_id, tipo_transferencia,
-                 ano_letivo_origem, ano_letivo_destino, valor_mensalidade_anterior,
-                 valor_mensalidade_novo, alterou_mensalidade, data_transferencia,
-                 motivo, observacoes)
-                VALUES (?, ?, ?, 'MESMO_ANO', ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (aluno_id, turma_origem_id, turma_destino_id, info['ano_origem'],
-                  info['ano_destino'], valor_anterior, valor_novo, 
-                  1 if alterar_valor else 0, date.today().strftime('%Y-%m-%d'),
-                  motivo, observacoes))
+                INSERT INTO historico_transferencias 
+                (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes, tipo_transferencia)
+                VALUES (?, ?, ?, ?, ?, 'TRANSFERENCIA')
+            """, (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes))
             
             conn.commit()
+            
+            # Obter nomes das turmas para retorno
+            cursor.execute("""
+                SELECT t1.nome as origem, t2.nome as destino
+                FROM turmas t1, turmas t2
+                WHERE t1.id = ? AND t2.id = ?
+            """, (turma_origem_id, turma_destino_id))
+            
+            turmas_info = cursor.fetchone()
             conn.close()
             
             return {
                 'success': True,
-                'tipo': 'MESMO_ANO',
-                'aluno': info['aluno_nome'],
-                'turma_origem': info['turma_origem'],
-                'turma_destino': info['turma_destino'],
-                'valor_alterado': alterar_valor,
-                'valor_anterior': valor_anterior,
-                'valor_novo': valor_novo,
-                'mensalidades_alteradas': mensalidades_alteradas
+                'aluno_nome': aluno_data[0],
+                'turma_origem': turmas_info[0] if turmas_info else 'N/A',
+                'turma_destino': turmas_info[1] if turmas_info else 'N/A'
             }
             
         except sqlite3.Error as e:
             conn.rollback()
             conn.close()
-            return {'success': False, 'error': f'Erro na transferência: {str(e)}'}
+            return {'success': False, 'error': f'Erro no banco de dados: {str(e)}'}
 
-    def obter_estatisticas_avancadas(self):
-        """Obtém estatísticas avançadas de transferências"""
+    def obter_historico_transferencias(self, limite=10):
+        """Obtém histórico de transferências"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
         try:
-            stats = {}
-            
-            # Total por tipo
             cursor.execute("""
-                SELECT tipo_transferencia, COUNT(*) as total
-                FROM historico_transferencias
-                GROUP BY tipo_transferencia
-            """)
-            
-            stats['por_tipo'] = {row[0]: row[1] for row in cursor.fetchall()}
-            
-            # Alunos ativos vs inativos
-            cursor.execute("""
-                SELECT status, COUNT(*) as total
-                FROM alunos
-                GROUP BY status
-            """)
-            
-            stats['alunos_por_status'] = {row[0]: row[1] for row in cursor.fetchall()}
-            
-            # Transferências do mês atual
-            mes_atual = date.today().strftime('%Y-%m')
-            cursor.execute("""
-                SELECT COUNT(*) as total
-                FROM historico_transferencias
-                WHERE strftime('%Y-%m', data_transferencia) = ?
-            """, (mes_atual,))
-            
-            stats['mes_atual'] = cursor.fetchone()[0] or 0
-            
-            conn.close()
-            return stats
-            
-        except sqlite3.Error as e:
-            conn.close()
-            print(f"Erro ao obter estatísticas avançadas: {e}")
-            return {}
-
-    def obter_historico_avancado(self, filtros=None, limite=50):
-        """Obtém histórico avançado com filtros"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            sql = """
                 SELECT 
-                    ht.id, ht.data_transferencia, ht.tipo_transferencia,
+                    h.data_transferencia,
                     a.nome as aluno_nome,
-                    t_origem.nome as turma_origem_nome,
-                    t_destino.nome as turma_destino_nome,
-                    ht.valor_mensalidade_anterior, ht.valor_mensalidade_novo,
-                    ht.motivo, ht.created_at
-                FROM historico_transferencias ht
-                INNER JOIN alunos a ON ht.aluno_id = a.id
-                LEFT JOIN turmas t_origem ON ht.turma_origem_id = t_origem.id
-                LEFT JOIN turmas t_destino ON ht.turma_destino_id = t_destino.id
-                WHERE 1=1
-            """
-            
-            params = []
-            
-            if filtros:
-                if filtros.get('tipo_transferencia'):
-                    sql += " AND ht.tipo_transferencia = ?"
-                    params.append(filtros['tipo_transferencia'])
-            
-            sql += " ORDER BY ht.created_at DESC LIMIT ?"
-            params.append(limite)
-            
-            cursor.execute(sql, params)
+                    t1.nome as turma_origem,
+                    t2.nome as turma_destino,
+                    h.motivo,
+                    h.observacoes
+                FROM historico_transferencias h
+                INNER JOIN alunos a ON h.aluno_id = a.id
+                LEFT JOIN turmas t1 ON h.turma_origem_id = t1.id
+                LEFT JOIN turmas t2 ON h.turma_destino_id = t2.id
+                ORDER BY h.data_transferencia DESC
+                LIMIT ?
+            """, (limite,))
             
             historico = []
             for row in cursor.fetchall():
                 item = {
-                    'id': row[0],
-                    'data_transferencia': row[1],
-                    'tipo_transferencia': row[2],
-                    'aluno_nome': row[3],
-                    'turma_origem': row[4] or "N/A",
-                    'turma_destino': row[5] or "N/A",
-                    'valor_anterior': row[6] or 0,
-                    'valor_novo': row[7] or 0,
-                    'motivo': row[8] or '',
-                    'created_at': row[9]
+                    'data_transferencia': row[0],
+                    'aluno_nome': row[1],
+                    'turma_origem': row[2] or 'N/A',
+                    'turma_destino': row[3] or 'N/A',
+                    'motivo': row[4],
+                    'observacoes': row[5] or ''
                 }
                 historico.append(item)
             
@@ -419,48 +244,89 @@ class TransferenciaAvancadaService:
             
         except sqlite3.Error as e:
             conn.close()
-            print(f"Erro ao obter histórico avançado: {e}")
+            print(f"❌ Erro ao obter histórico: {e}")
             return []
 
-    def listar_alunos_inativos(self):
-        """Lista alunos inativos para possível reativação"""
+    def obter_estatisticas_transferencias(self):
+        """Obtém estatísticas de transferências"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
         try:
-            cursor.execute("""
-                SELECT 
-                    a.id, a.nome, a.data_desligamento, a.motivo_desligamento,
-                    t.nome as ultima_turma, t.serie, t.ano_letivo,
-                    COUNT(p.id) as mensalidades_pendentes,
-                    COALESCE(SUM(p.valor_final), 0) as valor_pendente
-                FROM alunos a
-                LEFT JOIN turmas t ON a.turma_id = t.id
-                LEFT JOIN pagamentos p ON a.id = p.aluno_id AND p.status IN ('Pendente', 'Atrasado')
-                WHERE a.status = 'Inativo'
-                GROUP BY a.id
-                ORDER BY a.data_desligamento DESC
-            """)
+            # Total de transferências
+            cursor.execute("SELECT COUNT(*) FROM historico_transferencias")
+            total = cursor.fetchone()[0] or 0
             
-            alunos_inativos = []
-            for row in cursor.fetchall():
-                aluno = {
-                    'id': row[0],
-                    'nome': row[1],
-                    'data_desligamento': row[2],
-                    'motivo_desligamento': row[3] or 'Não informado',
-                    'ultima_turma': row[4],
-                    'serie': row[5],
-                    'ano_letivo': row[6],
-                    'mensalidades_pendentes': row[7],
-                    'valor_pendente': row[8]
-                }
-                alunos_inativos.append(aluno)
+            # Transferências este mês
+            cursor.execute("""
+                SELECT COUNT(*) FROM historico_transferencias
+                WHERE strftime('%Y-%m', data_transferencia) = strftime('%Y-%m', 'now')
+            """)
+            este_mes = cursor.fetchone()[0] or 0
+            
+            # Turma que mais recebe alunos
+            cursor.execute("""
+                SELECT t.nome, COUNT(*) as total
+                FROM historico_transferencias h
+                INNER JOIN turmas t ON h.turma_destino_id = t.id
+                GROUP BY t.id, t.nome
+                ORDER BY total DESC
+                LIMIT 1
+            """)
+            turma_mais_recebe = cursor.fetchone()
             
             conn.close()
-            return alunos_inativos
+            
+            return {
+                'total_transferencias': total,
+                'transferencias_mes': este_mes,
+                'turma_mais_recebe': f"{turma_mais_recebe[0]} ({turma_mais_recebe[1]})" if turma_mais_recebe else "N/A"
+            }
             
         except sqlite3.Error as e:
             conn.close()
-            print(f"Erro ao listar alunos inativos: {e}")
-            return []
+            print(f"❌ Erro ao obter estatísticas: {e}")
+            return {
+                'total_transferencias': 0,
+                'transferencias_mes': 0,
+                'turma_mais_recebe': 'N/A'
+            }
+
+    def validar_transferencia(self, aluno_id, turma_origem_id, turma_destino_id):
+        """Valida se transferência é possível"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            problemas = []
+            
+            # Verificar aluno
+            cursor.execute("SELECT nome, status FROM alunos WHERE id = ?", (aluno_id,))
+            aluno = cursor.fetchone()
+            
+            if not aluno:
+                problemas.append("Aluno não encontrado")
+            elif aluno[1].lower() != 'ativo':
+                problemas.append(f"Aluno {aluno[0]} não está ativo")
+            
+            # Verificar turmas
+            if turma_origem_id == turma_destino_id:
+                problemas.append("Turma de origem deve ser diferente da destino")
+            
+            cursor.execute("SELECT COUNT(*) FROM turmas WHERE id = ?", (turma_destino_id,))
+            if cursor.fetchone()[0] == 0:
+                problemas.append("Turma de destino não encontrada")
+            
+            conn.close()
+            
+            return {
+                'success': len(problemas) == 0,
+                'problemas': problemas
+            }
+            
+        except sqlite3.Error as e:
+            conn.close()
+            return {
+                'success': False,
+                'problemas': [f'Erro no banco: {str(e)}']
+            }

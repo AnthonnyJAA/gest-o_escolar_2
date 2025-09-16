@@ -4,183 +4,189 @@ from pathlib import Path
 
 class DatabaseConnection:
     def __init__(self, db_name="escola.db"):
+        """Inicializa conexão com banco corrigido"""
         self.db_path = Path(__file__).parent / db_name
         self.init_database()
     
     def get_connection(self):
-        return sqlite3.connect(self.db_path)
+        """Retorna conexão com o banco"""
+        try:
+            return sqlite3.connect(self.db_path)
+        except sqlite3.Error as e:
+            print(f"Erro ao conectar ao banco: {e}")
+            raise
     
     def init_database(self):
-        """Cria as tabelas com estrutura corrigida - Turmas apenas acadêmicas"""
+        """Cria todas as tabelas com estrutura corrigida"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        # === MIGRAÇÃO AUTOMÁTICA ===
-        print("🔄 Verificando estrutura do banco de dados...")
-        self._migrar_estrutura_turmas(cursor)
-        
-        # Tabela TURMAS (apenas dados acadêmicos)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS turmas_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT NOT NULL,
-                serie TEXT NOT NULL,
-                ano_letivo TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Tabela ALUNOS (com dados financeiros individuais)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS alunos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT NOT NULL,
-                data_nascimento DATE NOT NULL,
-                cpf TEXT,
-                sexo TEXT,
-                nacionalidade TEXT DEFAULT 'Brasileira',
-                telefone TEXT,
-                endereco TEXT,
-                turma_id INTEGER NOT NULL,
-                status TEXT DEFAULT 'Ativo',
-                valor_mensalidade REAL NOT NULL DEFAULT 0,
-                desconto_fixo REAL DEFAULT 0,
-                multa_por_dia REAL DEFAULT 0,
-                dias_carencia_multa INTEGER DEFAULT 30,
-                data_matricula DATE DEFAULT (date('now')),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (turma_id) REFERENCES turmas (id)
-            )
-        """)
-        
-        # Tabela RESPONSÁVEIS (múltiplos por aluno)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS responsaveis (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                aluno_id INTEGER NOT NULL,
-                nome TEXT NOT NULL,
-                telefone TEXT NOT NULL,
-                parentesco TEXT NOT NULL,
-                principal BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (aluno_id) REFERENCES alunos (id) ON DELETE CASCADE
-            )
-        """)
-        
-        # Tabela PAGAMENTOS
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pagamentos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                aluno_id INTEGER NOT NULL,
-                mes_referencia TEXT NOT NULL,
-                valor_original REAL NOT NULL,
-                desconto_aplicado REAL DEFAULT 0,
-                multa_aplicada REAL DEFAULT 0,
-                valor_final REAL NOT NULL,
-                data_vencimento DATE NOT NULL,
-                data_pagamento DATE,
-                status TEXT DEFAULT 'Pendente',
-                pode_receber_multa BOOLEAN DEFAULT 1,
-                observacoes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (aluno_id) REFERENCES alunos (id)
-            )
-        """)
-        
-        # Tabela CONFIGURAÇÕES
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS configuracoes (
-                id INTEGER PRIMARY KEY,
-                chave TEXT UNIQUE NOT NULL,
-                valor TEXT NOT NULL,
-                descricao TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Migrar dados para nova estrutura
-        self._finalizar_migracao_turmas(cursor)
-        
-        conn.commit()
-        conn.close()
-        print("✅ Banco de dados inicializado com estrutura corrigida!")
-    
-    def _migrar_estrutura_turmas(self, cursor):
-        """Migra estrutura da tabela turmas removendo campos financeiros"""
         try:
-            # Verificar se existe tabela turmas antiga
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='turmas'")
-            tabela_existe = cursor.fetchone()
+            print("🔄 Inicializando estrutura do banco...")
             
-            if tabela_existe:
-                # Verificar se tem campos financeiros
-                cursor.execute("PRAGMA table_info(turmas)")
-                colunas = cursor.fetchall()
-                colunas_nomes = [col[1] for col in colunas]
-                
-                if 'valor_mensalidade' in colunas_nomes:
-                    print("🔄 Migrando estrutura de turmas (removendo campos financeiros)...")
-                    
-                    # Criar tabela temporária com dados acadêmicos
-                    cursor.execute("""
-                        CREATE TABLE turmas_temp (
-                            id INTEGER PRIMARY KEY,
-                            nome TEXT NOT NULL,
-                            serie TEXT NOT NULL,
-                            ano_letivo TEXT NOT NULL,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    
-                    # Copiar apenas dados acadêmicos
-                    cursor.execute("""
-                        INSERT INTO turmas_temp (id, nome, serie, ano_letivo, created_at)
-                        SELECT id, nome, serie, ano_letivo, 
-                               COALESCE(created_at, CURRENT_TIMESTAMP)
-                        FROM turmas
-                    """)
-                    
-                    # Renomear tabelas
-                    cursor.execute("DROP TABLE turmas")
-                    cursor.execute("ALTER TABLE turmas_temp RENAME TO turmas")
-                    
-                    print("✅ Estrutura de turmas migrada com sucesso!")
-                else:
-                    print("✅ Estrutura de turmas já está correta!")
+            # === TABELA TURMAS (apenas dados acadêmicos) ===
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS turmas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    serie TEXT NOT NULL,
+                    ano_letivo TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # === TABELA ALUNOS (com dados financeiros individuais) ===
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alunos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    data_nascimento DATE NOT NULL,
+                    cpf TEXT,
+                    sexo TEXT,
+                    nacionalidade TEXT DEFAULT 'Brasileira',
+                    telefone TEXT,
+                    endereco TEXT,
+                    turma_id INTEGER NOT NULL,
+                    status TEXT DEFAULT 'Ativo',
+                    valor_mensalidade REAL NOT NULL DEFAULT 0,
+                    desconto_fixo REAL DEFAULT 0,
+                    multa_por_dia REAL DEFAULT 0,
+                    dias_carencia_multa INTEGER DEFAULT 30,
+                    data_matricula DATE DEFAULT (date('now')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (turma_id) REFERENCES turmas (id)
+                )
+            """)
+            
+            # === TABELA RESPONSÁVEIS ===
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS responsaveis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    aluno_id INTEGER NOT NULL,
+                    nome TEXT NOT NULL,
+                    telefone TEXT NOT NULL,
+                    parentesco TEXT NOT NULL,
+                    principal BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (aluno_id) REFERENCES alunos (id) ON DELETE CASCADE
+                )
+            """)
+            
+            # === TABELA PAGAMENTOS ===
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pagamentos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    aluno_id INTEGER NOT NULL,
+                    mes_referencia TEXT NOT NULL,
+                    valor_original REAL NOT NULL,
+                    desconto_aplicado REAL DEFAULT 0,
+                    multa_aplicada REAL DEFAULT 0,
+                    valor_final REAL NOT NULL,
+                    data_vencimento DATE NOT NULL,
+                    data_pagamento DATE,
+                    status TEXT DEFAULT 'Pendente',
+                    pode_receber_multa BOOLEAN DEFAULT 1,
+                    observacoes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (aluno_id) REFERENCES alunos (id)
+                )
+            """)
+            
+            # === TABELA HISTÓRICO DE TRANSFERÊNCIAS ===
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS historico_transferencias (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    aluno_id INTEGER NOT NULL,
+                    turma_origem_id INTEGER,
+                    turma_destino_id INTEGER,
+                    motivo TEXT NOT NULL,
+                    observacoes TEXT,
+                    data_transferencia TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    tipo_transferencia TEXT DEFAULT 'TRANSFERENCIA',
+                    FOREIGN KEY (aluno_id) REFERENCES alunos (id),
+                    FOREIGN KEY (turma_origem_id) REFERENCES turmas (id),
+                    FOREIGN KEY (turma_destino_id) REFERENCES turmas (id)
+                )
+            """)
+            
+            # === TABELA CONFIGURAÇÕES ===
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS configuracoes (
+                    id INTEGER PRIMARY KEY,
+                    chave TEXT UNIQUE NOT NULL,
+                    valor TEXT NOT NULL,
+                    descricao TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # === MIGRAÇÃO DE DADOS SE NECESSÁRIO ===
+            self._aplicar_migracoes(cursor)
+            
+            conn.commit()
+            print("✅ Banco de dados inicializado com sucesso!")
             
         except sqlite3.Error as e:
-            print(f"⚠️ Aviso na migração: {e}")
+            conn.rollback()
+            print(f"❌ Erro ao inicializar banco: {e}")
+            raise
+        finally:
+            conn.close()
     
-    def _finalizar_migracao_turmas(self, cursor):
-        """Finaliza migração removendo tabela temporária se existir"""
+    def _aplicar_migracoes(self, cursor):
+        """Aplica migrações necessárias"""
         try:
-            cursor.execute("DROP TABLE IF EXISTS turmas_new")
-        except sqlite3.Error:
-            pass
-    
-    def _adicionar_colunas_alunos(self, cursor):
-        """Adiciona colunas financeiras aos alunos se não existirem"""
-        try:
-            # Verificar se colunas financeiras existem
+            # Verificar se existe coluna valor_mensalidade em alunos
             cursor.execute("PRAGMA table_info(alunos)")
-            colunas = cursor.fetchall()
-            colunas_nomes = [col[1] for col in colunas]
+            colunas = [col[1] for col in cursor.fetchall()]
             
-            colunas_financeiras = [
-                ('valor_mensalidade', 'REAL NOT NULL DEFAULT 0'),
-                ('desconto_fixo', 'REAL DEFAULT 0'),
-                ('multa_por_dia', 'REAL DEFAULT 0'),
-                ('dias_carencia_multa', 'INTEGER DEFAULT 30'),
-                ('data_matricula', 'DATE DEFAULT (date("now"))')
+            colunas_necessarias = [
+                'valor_mensalidade',
+                'desconto_fixo',
+                'multa_por_dia',
+                'dias_carencia_multa',
+                'data_matricula'
             ]
             
-            for coluna, definicao in colunas_financeiras:
-                if coluna not in colunas_nomes:
-                    cursor.execute(f"ALTER TABLE alunos ADD COLUMN {coluna} {definicao}")
-                    print(f"✅ Coluna {coluna} adicionada à tabela alunos")
+            for coluna in colunas_necessarias:
+                if coluna not in colunas:
+                    if coluna == 'valor_mensalidade':
+                        cursor.execute(f"ALTER TABLE alunos ADD COLUMN {coluna} REAL NOT NULL DEFAULT 0")
+                    elif coluna in ['desconto_fixo', 'multa_por_dia']:
+                        cursor.execute(f"ALTER TABLE alunos ADD COLUMN {coluna} REAL DEFAULT 0")
+                    elif coluna == 'dias_carencia_multa':
+                        cursor.execute(f"ALTER TABLE alunos ADD COLUMN {coluna} INTEGER DEFAULT 30")
+                    elif coluna == 'data_matricula':
+                        cursor.execute(f"ALTER TABLE alunos ADD COLUMN {coluna} DATE DEFAULT (date('now'))")
                     
+                    print(f"✅ Coluna {coluna} adicionada à tabela alunos")
+            
+            # Verificar e criar tabela de histórico se não existir
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='historico_transferencias'")
+            if not cursor.fetchone():
+                print("📋 Criando tabela de histórico de transferências...")
+            
         except sqlite3.Error as e:
-            print(f"⚠️ Aviso ao adicionar colunas: {e}")
+            print(f"⚠️ Aviso durante migração: {e}")
 
 # Instância global do banco
 db = DatabaseConnection()
+
+# Função para backup do banco
+def criar_backup():
+    """Cria backup do banco de dados"""
+    try:
+        import shutil
+        from datetime import datetime
+        
+        source = db.db_path
+        backup_name = f"escola_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        backup_path = db.db_path.parent / backup_name
+        
+        shutil.copy2(source, backup_path)
+        print(f"✅ Backup criado: {backup_name}")
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Erro ao criar backup: {e}")
+        return False

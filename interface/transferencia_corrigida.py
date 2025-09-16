@@ -1,755 +1,791 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from services.transferencia_service import TransferenciaAvancadaService
-from services.aluno_service import AlunoService  
-from services.turma_service import TurmaService
-from utils.formatters import format_date, format_currency
+from services.transferencia_service import TransferenciaService
+from services.aluno_service import AlunoService
+from utils.formatters import format_date
 from datetime import datetime
 
-class TransferenciaAvancadaInterface:
+class TransferenciaInterface:
     def __init__(self, parent_frame):
         self.parent_frame = parent_frame
-        self.transferencia_service = TransferenciaAvancadaService()
-        self.aluno_service = AlunoService()
-        self.turma_service = TurmaService()
+        self.parent_frame.configure(bg='white')
         
-        # Variáveis de controle
-        self.turma_origem_var = tk.StringVar()
-        self.turma_destino_var = tk.StringVar()
-        self.motivo_var = tk.StringVar()
-        self.tipo_operacao_var = tk.StringVar(value="TRANSFERENCIA")
+        try:
+            self.transferencia_service = TransferenciaService()
+            self.aluno_service = AlunoService()
+        except Exception as e:
+            print(f"❌ Erro ao inicializar serviços: {e}")
+            self.mostrar_erro(f"Erro ao inicializar serviços: {e}")
+            return
+        
+        # Variáveis
+        self.turmas_data = []
+        self.alunos_turma_origem = []
         self.alunos_selecionados = []
         
-        # Dados carregados
-        self.turmas_data = {}
-        self.alunos_origem_data = []
-        
-        self.create_interface()
-        self.carregar_dados_iniciais()
+        try:
+            self.create_interface()
+            self.carregar_turmas()
+        except Exception as e:
+            print(f"❌ Erro ao criar interface: {e}")
+            self.mostrar_erro(f"Erro ao criar interface: {e}")
 
     def create_interface(self):
-        """Cria a interface principal avançada"""
-        # Container principal com scroll
-        canvas = tk.Canvas(self.parent_frame, bg='white', highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.parent_frame, orient="vertical", command=canvas.yview)
-        self.scrollable_frame = tk.Frame(canvas, bg='white')
-
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
+        """Cria interface de transferências"""
+        
         # Container principal
-        main_container = tk.Frame(self.scrollable_frame, bg='white')
+        main_container = tk.Frame(self.parent_frame, bg='white')
         main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-
-        # Header
-        self.create_header(main_container)
-
-        # Seletor de tipo de operação
-        self.create_operation_selector(main_container)
-
-        # Painel principal de transferência
-        self.create_transfer_panel(main_container)
-
-        # Histórico avançado
-        self.create_history_panel(main_container)
-
-    def create_header(self, parent):
-        """Cria o cabeçalho"""
-        header_frame = tk.Frame(parent, bg='white')
+        
+        # === CABEÇALHO ===
+        header_frame = tk.Frame(main_container, bg='white')
         header_frame.pack(fill=tk.X, pady=(0, 20))
-
-        # Título
-        title_frame = tk.Frame(header_frame, bg='white')
-        title_frame.pack(fill=tk.X)
-
+        
         tk.Label(
-            title_frame,
-            text="🔄 Sistema de Transferências Avançadas",
-            font=('Arial', 20, 'bold'),
+            header_frame,
+            text="🔄 Sistema de Transferências",
+            font=('Arial', 24, 'bold'),
             bg='white',
             fg='#2c3e50'
         ).pack(side=tk.LEFT)
-
-        tk.Label(
-            title_frame,
-            text="Versão Corrigida - Carregamento de Dados OK",
-            font=('Arial', 10),
-            bg='white',
-            fg='#28a745'
-        ).pack(side=tk.RIGHT)
-
-        # Botões
-        buttons_frame = tk.Frame(header_frame, bg='white')
-        buttons_frame.pack(fill=tk.X, pady=(10, 0))
-
+        
+        # Botão de atualizar
         tk.Button(
-            buttons_frame,
-            text="🔄 Recarregar Dados",
-            command=self.carregar_dados_iniciais,
+            header_frame,
+            text="🔄 Atualizar",
+            command=self.carregar_turmas,
             font=('Arial', 10, 'bold'),
-            bg='#28a745',
+            bg='#3498db',
             fg='white',
             padx=15,
             pady=5,
             relief='flat'
         ).pack(side=tk.RIGHT)
+        
+        # === ÁREA PRINCIPAL ===
+        content_frame = tk.Frame(main_container, bg='white')
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Coluna esquerda - Seleção
+        left_frame = tk.Frame(content_frame, bg='white')
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        
+        self.criar_secao_selecao(left_frame)
+        
+        # Coluna direita - Ações
+        right_frame = tk.Frame(content_frame, bg='white')
+        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        right_frame.configure(width=350)
+        right_frame.pack_propagate(False)
+        
+        self.criar_secao_acoes(right_frame)
 
-    def create_operation_selector(self, parent):
-        """Cria seletor de tipo de operação"""
-        selector_frame = tk.LabelFrame(
+    def criar_secao_selecao(self, parent):
+        """Cria seção de seleção de turmas e alunos"""
+        
+        # === SELEÇÃO DE TURMAS ===
+        turmas_frame = tk.LabelFrame(
             parent,
-            text=" Tipo de Operação ",
+            text=" 🎯 Seleção de Turmas ",
             font=('Arial', 12, 'bold'),
-            bg='white'
-        )
-        selector_frame.pack(fill=tk.X, pady=(0, 20))
-
-        operations_frame = tk.Frame(selector_frame, bg='white')
-        operations_frame.pack(fill=tk.X, padx=20, pady=10)
-
-        tk.Radiobutton(
-            operations_frame,
-            text="🔄 Transferência de Turma",
-            variable=self.tipo_operacao_var,
-            value="TRANSFERENCIA",
-            font=('Arial', 11),
             bg='white',
-            command=self.on_operacao_changed
-        ).pack(side=tk.LEFT, padx=(0, 20))
-
-        tk.Radiobutton(
-            operations_frame,
-            text="❌ Desligamento",
-            variable=self.tipo_operacao_var,
-            value="DESLIGAMENTO", 
-            font=('Arial', 11),
-            bg='white',
-            command=self.on_operacao_changed
-        ).pack(side=tk.LEFT)
-
-    def create_transfer_panel(self, parent):
-        """Cria painel principal de transferência"""
-        transfer_frame = tk.LabelFrame(
-            parent,
-            text=" Painel de Transferências ",
-            font=('Arial', 12, 'bold'),
-            bg='white'
+            fg='#2c3e50'
         )
-        transfer_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
-
-        # Container principal
-        main_container = tk.Frame(transfer_frame, bg='white')
-        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-
+        turmas_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        turmas_content = tk.Frame(turmas_frame, bg='white')
+        turmas_content.pack(fill=tk.X, padx=15, pady=15)
+        
         # Turma de origem
-        origem_frame = tk.Frame(main_container, bg='white')
-        origem_frame.pack(fill=tk.X, pady=(0, 10))
-
-        tk.Label(origem_frame, text="🏫 Turma de Origem:", font=('Arial', 10, 'bold'), bg='white').pack(anchor='w')
+        tk.Label(turmas_content, text="📤 Turma de Origem:", font=('Arial', 11, 'bold'), bg='white').pack(anchor='w', pady=(0, 5))
         
+        self.turma_origem_var = tk.StringVar()
         self.turma_origem_combo = ttk.Combobox(
-            origem_frame,
-            textvariable=self.turma_origem_var,
-            state='readonly',
-            font=('Arial', 10),
-            width=70
+            turmas_content, textvariable=self.turma_origem_var,
+            state="readonly", width=40
         )
-        self.turma_origem_combo.pack(fill=tk.X, pady=(5, 0))
-        self.turma_origem_combo.bind('<<ComboboxSelected>>', self.on_turma_origem_selected)
-
-        # Status de carregamento
-        self.status_origem_label = tk.Label(
-            origem_frame,
-            text="🔄 Carregando turmas...",
-            font=('Arial', 9),
-            bg='white',
-            fg='#6c757d'
-        )
-        self.status_origem_label.pack(anchor='w', pady=(2, 0))
-
-        # Lista de alunos
-        alunos_frame = tk.Frame(main_container, bg='white')
-        alunos_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-
-        alunos_header = tk.Frame(alunos_frame, bg='white')
-        alunos_header.pack(fill=tk.X)
-
-        tk.Label(alunos_header, text="👥 Alunos Disponíveis:", font=('Arial', 10, 'bold'), bg='white').pack(side=tk.LEFT, anchor='w')
-
-        # Contador de alunos
-        self.contador_alunos_label = tk.Label(
-            alunos_header,
-            text="Selecione uma turma primeiro",
-            font=('Arial', 9),
-            bg='white',
-            fg='#6c757d'
-        )
-        self.contador_alunos_label.pack(side=tk.RIGHT)
-
-        # TreeView para alunos com checkboxes
-        tree_frame = tk.Frame(alunos_frame, bg='white')
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
-
-        self.alunos_tree = ttk.Treeview(
-            tree_frame,
-            columns=('nome', 'idade', 'mensalidade', 'status'),
-            show='tree headings',  # Mostrar tree + headings para checkbox
-            height=10
-        )
-
-        # Configurar colunas
-        self.alunos_tree.heading('#0', text='✓', width=30)
-        self.alunos_tree.heading('nome', text='Nome')
-        self.alunos_tree.heading('idade', text='Idade')  
-        self.alunos_tree.heading('mensalidade', text='Mensalidade')
-        self.alunos_tree.heading('status', text='Status')
-
-        self.alunos_tree.column('#0', width=30, minwidth=30)
-        self.alunos_tree.column('nome', width=250)
-        self.alunos_tree.column('idade', width=80)
-        self.alunos_tree.column('mensalidade', width=100)
-        self.alunos_tree.column('status', width=80)
-
-        scrollbar_alunos = ttk.Scrollbar(tree_frame, orient="vertical", command=self.alunos_tree.yview)
-        self.alunos_tree.configure(yscrollcommand=scrollbar_alunos.set)
-
-        self.alunos_tree.pack(side="left", fill="both", expand=True)
-        scrollbar_alunos.pack(side="right", fill="y")
-
-        # Bind para seleção
-        self.alunos_tree.bind("<Button-1>", self.on_aluno_click)
-        self.alunos_tree.bind("<space>", self.toggle_aluno_selection)
-
-        # Painel de destino (só para transferência)
-        self.destino_frame = tk.Frame(main_container, bg='white')
-        self.destino_frame.pack(fill=tk.X, pady=(15, 10))
-
-        tk.Label(self.destino_frame, text="🎯 Turma de Destino:", font=('Arial', 10, 'bold'), bg='white').pack(anchor='w')
+        self.turma_origem_combo.pack(fill=tk.X, pady=(0, 10))
+        self.turma_origem_combo.bind("<<ComboboxSelected>>", self.on_turma_origem_change)
         
+        # Botão carregar alunos
+        tk.Button(
+            turmas_content,
+            text="📋 Carregar Alunos da Turma",
+            command=self.carregar_alunos_turma,
+            font=('Arial', 10, 'bold'),
+            bg='#27ae60',
+            fg='white',
+            padx=15,
+            pady=8,
+            relief='flat'
+        ).pack(pady=(0, 15))
+        
+        # Turma de destino
+        tk.Label(turmas_content, text="📥 Turma de Destino:", font=('Arial', 11, 'bold'), bg='white').pack(anchor='w', pady=(0, 5))
+        
+        self.turma_destino_var = tk.StringVar()
         self.turma_destino_combo = ttk.Combobox(
-            self.destino_frame,
-            textvariable=self.turma_destino_var,
-            state='readonly',
-            font=('Arial', 10),
-            width=70
+            turmas_content, textvariable=self.turma_destino_var,
+            state="readonly", width=40
         )
-        self.turma_destino_combo.pack(fill=tk.X, pady=(5, 0))
-
-        self.status_destino_label = tk.Label(
-            self.destino_frame,
-            text="Aguardando seleção da turma de origem",
-            font=('Arial', 9),
+        self.turma_destino_combo.pack(fill=tk.X)
+        
+        # === SELEÇÃO DE ALUNOS ===
+        alunos_frame = tk.LabelFrame(
+            parent,
+            text=" 👥 Seleção de Alunos ",
+            font=('Arial', 12, 'bold'),
             bg='white',
-            fg='#6c757d'
+            fg='#2c3e50'
         )
-        self.status_destino_label.pack(anchor='w', pady=(2, 0))
-
-        # Motivo
-        motivo_frame = tk.Frame(main_container, bg='white')
-        motivo_frame.pack(fill=tk.X, pady=(10, 0))
-
-        tk.Label(motivo_frame, text="📝 Motivo:", font=('Arial', 10, 'bold'), bg='white').pack(anchor='w')
+        alunos_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         
-        motivos = [
-            "Transferência de turma",
-            "Mudança de turno", 
-            "Solicitação dos pais",
-            "Adequação pedagógica",
-            "Mudança de nível",
-            "Reorganização de classes",
-            "Outros"
-        ]
+        # Controles de seleção
+        controles_frame = tk.Frame(alunos_frame, bg='white')
+        controles_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
         
-        self.motivo_combo = ttk.Combobox(
-            motivo_frame,
-            textvariable=self.motivo_var,
-            values=motivos,
-            font=('Arial', 10),
-            width=70
+        tk.Button(
+            controles_frame,
+            text="☑️ Selecionar Todos",
+            command=self.selecionar_todos,
+            font=('Arial', 9, 'bold'),
+            bg='#007bff',
+            fg='white',
+            padx=10,
+            relief='flat'
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(
+            controles_frame,
+            text="☐ Limpar Seleção",
+            command=self.limpar_selecao,
+            font=('Arial', 9, 'bold'),
+            bg='#6c757d',
+            fg='white',
+            padx=10,
+            relief='flat'
+        ).pack(side=tk.LEFT)
+        
+        # Contador de selecionados
+        self.lbl_selecionados = tk.Label(
+            controles_frame,
+            text="Selecionados: 0",
+            font=('Arial', 10, 'bold'),
+            bg='white',
+            fg='#2c3e50'
         )
-        self.motivo_combo.pack(fill=tk.X, pady=(5, 0))
-        self.motivo_combo.set(motivos[0])
+        self.lbl_selecionados.pack(side=tk.RIGHT)
+        
+        # Lista de alunos com checkboxes
+        lista_frame = tk.Frame(alunos_frame, bg='white')
+        lista_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+        
+        # Frame com scroll
+        canvas = tk.Canvas(lista_frame, bg='white', highlightthickness=0)
+        scrollbar = ttk.Scrollbar(lista_frame, orient="vertical", command=canvas.yview)
+        self.scrollable_alunos = tk.Frame(canvas, bg='white')
+        
+        self.scrollable_alunos.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=self.scrollable_alunos, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Inicializar lista vazia
+        self.checkboxes_alunos = []
 
-        # Painel de resumo
-        resumo_frame = tk.LabelFrame(main_container, text="📋 Resumo da Operação", bg='white')
-        resumo_frame.pack(fill=tk.X, pady=(15, 0))
-
-        self.resumo_label = tk.Label(
-            resumo_frame,
-            text="Selecione os alunos e configure a transferência",
+    def criar_secao_acoes(self, parent):
+        """Cria seção de ações de transferência"""
+        
+        # === INFORMAÇÕES ===
+        info_frame = tk.LabelFrame(
+            parent,
+            text=" ℹ️ Informações ",
+            font=('Arial', 11, 'bold'),
+            bg='white',
+            fg='#2c3e50'
+        )
+        info_frame.pack(fill=tk.X, padx=10, pady=(10, 15))
+        
+        info_content = tk.Frame(info_frame, bg='white')
+        info_content.pack(fill=tk.X, padx=10, pady=10)
+        
+        self.lbl_info = tk.Label(
+            info_content,
+            text="Selecione uma turma de origem\npara começar",
             font=('Arial', 10),
             bg='white',
             fg='#6c757d',
-            justify='left'
+            justify=tk.LEFT
         )
-        self.resumo_label.pack(padx=15, pady=10, anchor='w')
-
-        # Botões
-        buttons_frame = tk.Frame(main_container, bg='white')
-        buttons_frame.pack(fill=tk.X, pady=(15, 0))
-
-        # Botão de seleção rápida
-        tk.Button(
-            buttons_frame,
-            text="☑️ Selecionar Todos",
-            command=self.selecionar_todos_alunos,
-            font=('Arial', 10),
+        self.lbl_info.pack(fill=tk.X)
+        
+        # === CONFIGURAÇÕES DE TRANSFERÊNCIA ===
+        config_frame = tk.LabelFrame(
+            parent,
+            text=" ⚙️ Configurações ",
+            font=('Arial', 11, 'bold'),
+            bg='white',
+            fg='#2c3e50'
+        )
+        config_frame.pack(fill=tk.X, padx=10, pady=(0, 15))
+        
+        config_content = tk.Frame(config_frame, bg='white')
+        config_content.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Motivo
+        tk.Label(config_content, text="📝 Motivo:", font=('Arial', 10, 'bold'), bg='white').pack(anchor='w', pady=(0, 5))
+        
+        self.motivo_var = tk.StringVar(value="Remanejamento de turma")
+        motivo_combo = ttk.Combobox(
+            config_content, textvariable=self.motivo_var,
+            values=[
+                "Remanejamento de turma",
+                "Promoção para próxima série",
+                "Mudança de turno",
+                "Solicitação dos pais",
+                "Adequação pedagógica",
+                "Transferência administrativa",
+                "Outros"
+            ],
+            width=25
+        )
+        motivo_combo.pack(fill=tk.X, pady=(0, 10))
+        
+        # Observações
+        tk.Label(config_content, text="💭 Observações:", font=('Arial', 10, 'bold'), bg='white').pack(anchor='w', pady=(0, 5))
+        
+        self.entry_observacoes = tk.Text(config_content, height=3, wrap=tk.WORD, font=('Arial', 10))
+        self.entry_observacoes.pack(fill=tk.X, pady=(0, 10))
+        
+        # === AÇÕES ===
+        acoes_frame = tk.LabelFrame(
+            parent,
+            text=" 🚀 Executar Transferência ",
+            font=('Arial', 11, 'bold'),
+            bg='white',
+            fg='#2c3e50'
+        )
+        acoes_frame.pack(fill=tk.X, padx=10, pady=(0, 15))
+        
+        acoes_content = tk.Frame(acoes_frame, bg='white')
+        acoes_content.pack(fill=tk.X, padx=10, pady=15)
+        
+        # Botão validar
+        self.btn_validar = tk.Button(
+            acoes_content,
+            text="🔍 Validar Transferência",
+            command=self.validar_transferencia,
+            font=('Arial', 10, 'bold'),
             bg='#17a2b8',
             fg='white',
             padx=15,
             pady=8,
-            relief='flat'
-        ).pack(side=tk.LEFT, padx=(0, 10))
-
-        tk.Button(
-            buttons_frame,
-            text="☐ Limpar Seleção",
-            command=self.limpar_selecao_alunos,
-            font=('Arial', 10),
-            bg='#6c757d',
-            fg='white',
-            padx=15,
-            pady=8,
-            relief='flat'
-        ).pack(side=tk.LEFT)
-
-        # Botão principal
-        self.execute_button = tk.Button(
-            buttons_frame,
-            text="🚀 EXECUTAR TRANSFERÊNCIA",
-            command=self.executar_operacao,
-            font=('Arial', 12, 'bold'),
-            bg='#007bff',
-            fg='white',
-            padx=25,
-            pady=12,
             relief='flat',
-            cursor='hand2',
             state='disabled'
         )
-        self.execute_button.pack(side=tk.RIGHT)
-
-    def create_history_panel(self, parent):
-        """Cria painel de histórico"""
-        history_frame = tk.LabelFrame(
+        self.btn_validar.pack(fill=tk.X, pady=(0, 10))
+        
+        # Botão transferir
+        self.btn_transferir = tk.Button(
+            acoes_content,
+            text="🚀 Transferir Selecionados",
+            command=self.executar_transferencia,
+            font=('Arial', 11, 'bold'),
+            bg='#28a745',
+            fg='white',
+            padx=15,
+            pady=12,
+            relief='flat',
+            state='disabled'
+        )
+        self.btn_transferir.pack(fill=tk.X)
+        
+        # === HISTÓRICO RECENTE ===
+        historico_frame = tk.LabelFrame(
             parent,
-            text=" 📚 Histórico de Transferências ",
-            font=('Arial', 12, 'bold'),
-            bg='white'
+            text=" 📚 Histórico Recente ",
+            font=('Arial', 11, 'bold'),
+            bg='white',
+            fg='#2c3e50'
         )
-        history_frame.pack(fill=tk.BOTH, expand=True)
-
-        # TreeView para histórico
-        self.history_tree = ttk.Treeview(
-            history_frame,
-            columns=('data', 'tipo', 'aluno', 'origem', 'destino', 'motivo'),
-            show='headings',
-            height=6
+        historico_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(15, 10))
+        
+        # Lista de histórico
+        self.lista_historico = tk.Listbox(
+            historico_frame,
+            font=('Arial', 9),
+            height=8,
+            selectmode=tk.SINGLE
         )
+        self.lista_historico.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.history_tree.heading('data', text='Data')
-        self.history_tree.heading('tipo', text='Tipo')
-        self.history_tree.heading('aluno', text='Aluno')
-        self.history_tree.heading('origem', text='Origem')
-        self.history_tree.heading('destino', text='Destino')
-        self.history_tree.heading('motivo', text='Motivo')
-
-        self.history_tree.column('data', width=80)
-        self.history_tree.column('tipo', width=100)
-        self.history_tree.column('aluno', width=150)
-        self.history_tree.column('origem', width=120)
-        self.history_tree.column('destino', width=120)
-        self.history_tree.column('motivo', width=200)
-
-        scrollbar_history = ttk.Scrollbar(history_frame, orient="vertical", command=self.history_tree.yview)
-        self.history_tree.configure(yscrollcommand=scrollbar_history.set)
-
-        self.history_tree.pack(side="left", fill="both", expand=True, padx=20, pady=15)
-        scrollbar_history.pack(side="right", fill="y", pady=15)
-
-    def carregar_dados_iniciais(self):
-        """Carrega dados iniciais - CORRIGIDO"""
+    def carregar_turmas(self):
+        """Carrega lista de turmas"""
         try:
-            print("🔄 Carregando dados das transferências...")
+            print("🔄 Carregando turmas para transferência...")
             
-            # Atualizar status
-            self.status_origem_label.config(text="🔄 Carregando turmas...", fg='#007bff')
-            self.parent_frame.update_idletasks()
-
-            # Carregar turmas usando TurmaService diretamente
-            turmas = self.turma_service.listar_turmas()
-            print(f"✅ {len(turmas)} turmas encontradas")
-
-            if not turmas:
-                self.status_origem_label.config(text="⚠️ Nenhuma turma encontrada", fg='#dc3545')
-                messagebox.showwarning("Aviso", "Nenhuma turma encontrada!\n\nCadastre turmas primeiro na aba 'Turmas'.")
+            # Usar o serviço correto
+            self.turmas_data = self.aluno_service.listar_turmas()
+            
+            if not self.turmas_data:
+                print("⚠️ Nenhuma turma encontrada")
+                self.atualizar_info("Nenhuma turma cadastrada\nno sistema")
                 return
-
-            # Formatar turmas para exibição
-            self.turmas_data = {}
-            turmas_display = []
-
-            for turma in turmas:
-                # Contar alunos ativos na turma
-                try:
-                    alunos_turma = self.aluno_service.listar_alunos_por_turma(turma['id'])
-                    total_alunos = len([a for a in alunos_turma if a.get('status') == 'Ativo'])
-                except:
-                    total_alunos = 0
-
-                display_name = f"{turma['nome']} - {turma['serie']} ({turma['ano_letivo']}) - {total_alunos} aluno(s)"
-                
-                turmas_display.append(display_name)
-                self.turmas_data[display_name] = {
-                    'id': turma['id'],
-                    'nome': turma['nome'],
-                    'serie': turma['serie'],
-                    'ano_letivo': turma['ano_letivo'],
-                    'total_alunos': total_alunos,
-                    'valor_mensalidade_padrao': turma.get('valor_mensalidade_padrao', 0)
-                }
-
+            
             # Atualizar combos
-            self.turma_origem_combo['values'] = turmas_display
-            self.turma_destino_combo['values'] = turmas_display
+            turma_values = [turma['display'] for turma in self.turmas_data]
+            
+            self.turma_origem_combo['values'] = turma_values
+            self.turma_destino_combo['values'] = turma_values
             
             # Limpar seleções
             self.turma_origem_var.set('')
             self.turma_destino_var.set('')
-
-            # Atualizar status
-            self.status_origem_label.config(text=f"✅ {len(turmas)} turmas carregadas", fg='#28a745')
+            
+            # Atualizar informações
+            self.atualizar_info(f"{len(self.turmas_data)} turmas carregadas\nSelecione a turma de origem")
             
             # Carregar histórico
             self.carregar_historico()
             
-            print("✅ Dados carregados com sucesso!")
-
+            print(f"✅ {len(self.turmas_data)} turmas carregadas")
+            
         except Exception as e:
-            error_msg = f"Erro ao carregar dados: {str(e)}"
-            print(f"❌ {error_msg}")
-            self.status_origem_label.config(text="❌ Erro ao carregar turmas", fg='#dc3545')
-            messagebox.showerror("Erro", error_msg)
+            print(f"❌ Erro ao carregar turmas: {e}")
+            self.atualizar_info(f"Erro ao carregar turmas:\n{str(e)}")
 
-    def on_operacao_changed(self):
-        """Callback quando tipo de operação muda"""
-        if self.tipo_operacao_var.get() == "DESLIGAMENTO":
-            self.destino_frame.pack_forget()
-            self.execute_button.config(text="❌ EXECUTAR DESLIGAMENTO")
-        else:
-            self.destino_frame.pack(fill=tk.X, pady=(15, 10))
-            self.execute_button.config(text="🚀 EXECUTAR TRANSFERÊNCIA")
-
-    def on_turma_origem_selected(self, event=None):
-        """Callback quando turma origem é selecionada - CORRIGIDO"""
+    def on_turma_origem_change(self, event=None):
+        """Quando turma de origem muda"""
         try:
-            turma_display = self.turma_origem_var.get()
-            if not turma_display or turma_display not in self.turmas_data:
+            turma_origem = self.turma_origem_var.get()
+            if not turma_origem:
                 return
+            
+            # Encontrar turma
+            turma_origem_obj = None
+            for turma in self.turmas_data:
+                if turma['display'] == turma_origem:
+                    turma_origem_obj = turma
+                    break
+            
+            if turma_origem_obj:
+                self.atualizar_info(f"Turma selecionada:\n{turma_origem}\n\nClique em 'Carregar Alunos'")
+                
+                # Habilitar botão de carregar
+                self.habilitar_controles(False)
+            
+        except Exception as e:
+            print(f"❌ Erro ao selecionar turma origem: {e}")
 
-            print(f"🔄 Carregando alunos da turma: {turma_display}")
-            
-            # Atualizar contador
-            self.contador_alunos_label.config(text="🔄 Carregando alunos...", fg='#007bff')
-            
-            # Obter dados da turma
-            turma_data = self.turmas_data[turma_display]
-            
-            # Carregar alunos da turma
-            alunos = self.aluno_service.listar_alunos_por_turma(turma_data['id'])
-            alunos_ativos = [a for a in alunos if a.get('status') == 'Ativo']
-            
-            # Limpar lista atual
-            for item in self.alunos_tree.get_children():
-                self.alunos_tree.delete(item)
-            
-            self.alunos_origem_data = []
-            self.alunos_selecionados = []
-
-            if not alunos_ativos:
-                self.contador_alunos_label.config(text="⚠️ Nenhum aluno ativo nesta turma", fg='#dc3545')
-                self.atualizar_resumo()
+    def carregar_alunos_turma(self):
+        """Carrega alunos da turma selecionada"""
+        try:
+            turma_origem = self.turma_origem_var.get()
+            if not turma_origem:
+                messagebox.showwarning("Atenção", "Selecione uma turma de origem")
                 return
+            
+            # Encontrar ID da turma
+            turma_id = None
+            for turma in self.turmas_data:
+                if turma['display'] == turma_origem:
+                    turma_id = turma['id']
+                    break
+            
+            if not turma_id:
+                messagebox.showerror("Erro", "Turma não encontrada")
+                return
+            
+            print(f"📋 Carregando alunos da turma ID: {turma_id}")
+            
+            # Carregar alunos
+            self.alunos_turma_origem = self.aluno_service.buscar_alunos_por_turma(turma_id)
+            
+            if not self.alunos_turma_origem:
+                messagebox.showinfo("Informação", "Nenhum aluno encontrado nesta turma")
+                self.atualizar_info("Turma selecionada não possui\nalunos ativos")
+                return
+            
+            # Atualizar interface
+            self.criar_lista_alunos()
+            self.atualizar_info(f"{len(self.alunos_turma_origem)} alunos carregados\nSelecione os alunos e\na turma de destino")
+            
+            # Habilitar controles
+            self.habilitar_controles(True)
+            
+            print(f"✅ {len(self.alunos_turma_origem)} alunos carregados")
+            
+        except Exception as e:
+            print(f"❌ Erro ao carregar alunos: {e}")
+            messagebox.showerror("Erro", f"Erro ao carregar alunos:\n{e}")
 
-            # Preencher lista de alunos
-            for aluno in alunos_ativos:
-                # Calcular idade aproximada
-                idade = "N/A"
-                if aluno.get('data_nascimento'):
-                    try:
-                        from datetime import datetime
-                        nascimento = datetime.strptime(aluno['data_nascimento'], '%Y-%m-%d')
-                        idade_anos = datetime.now().year - nascimento.year
-                        idade = f"{idade_anos} anos"
-                    except:
-                        pass
+    def criar_lista_alunos(self):
+        """Cria lista de alunos com checkboxes"""
+        
+        # Limpar lista anterior
+        for widget in self.scrollable_alunos.winfo_children():
+            widget.destroy()
+        
+        self.checkboxes_alunos = []
+        
+        # Criar checkbox para cada aluno
+        for i, aluno in enumerate(self.alunos_turma_origem):
+            
+            # Frame para o aluno
+            aluno_frame = tk.Frame(self.scrollable_alunos, bg='white', relief='solid', bd=1)
+            aluno_frame.pack(fill=tk.X, padx=5, pady=2)
+            
+            # Variável do checkbox
+            var_checkbox = tk.BooleanVar()
+            
+            # Checkbox
+            checkbox = tk.Checkbutton(
+                aluno_frame,
+                variable=var_checkbox,
+                bg='white',
+                command=self.atualizar_contador_selecionados
+            )
+            checkbox.pack(side=tk.LEFT, padx=(10, 5), pady=8)
+            
+            # Informações do aluno
+            info_frame = tk.Frame(aluno_frame, bg='white')
+            info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10), pady=5)
+            
+            # Nome
+            tk.Label(
+                info_frame,
+                text=aluno.get('nome', ''),
+                font=('Arial', 11, 'bold'),
+                bg='white',
+                fg='#2c3e50'
+            ).pack(anchor='w')
+            
+            # Detalhes
+            detalhes = f"ID: {aluno.get('id', '')} | Idade: {aluno.get('idade', 0)} anos"
+            if aluno.get('valor_mensalidade'):
+                detalhes += f" | Mensalidade: R$ {aluno.get('valor_mensalidade', 0):.2f}"
+            
+            tk.Label(
+                info_frame,
+                text=detalhes,
+                font=('Arial', 9),
+                bg='white',
+                fg='#6c757d'
+            ).pack(anchor='w')
+            
+            # Salvar referências
+            self.checkboxes_alunos.append({
+                'aluno': aluno,
+                'var': var_checkbox,
+                'frame': aluno_frame
+            })
 
-                # Inserir na TreeView
-                item_id = self.alunos_tree.insert('', 'end', 
-                    text='☐',  # Checkbox vazio
-                    values=(
-                        aluno['nome'],
-                        idade,
-                        format_currency(aluno.get('valor_mensalidade', 0)),
-                        aluno.get('status', 'Ativo')
-                    ),
-                    tags=(str(aluno['id']),)
+    def selecionar_todos(self):
+        """Seleciona todos os alunos"""
+        for item in self.checkboxes_alunos:
+            item['var'].set(True)
+        
+        self.atualizar_contador_selecionados()
+
+    def limpar_selecao(self):
+        """Limpa seleção de todos os alunos"""
+        for item in self.checkboxes_alunos:
+            item['var'].set(False)
+        
+        self.atualizar_contador_selecionados()
+
+    def atualizar_contador_selecionados(self):
+        """Atualiza contador de alunos selecionados"""
+        try:
+            selecionados = 0
+            for item in self.checkboxes_alunos:
+                if item['var'].get():
+                    selecionados += 1
+            
+            self.lbl_selecionados.config(text=f"Selecionados: {selecionados}")
+            
+            # Atualizar estado dos botões
+            has_selection = selecionados > 0
+            has_destino = bool(self.turma_destino_var.get())
+            
+            self.btn_validar.config(state='normal' if has_selection and has_destino else 'disabled')
+            self.btn_transferir.config(state='normal' if has_selection and has_destino else 'disabled')
+            
+        except Exception as e:
+            print(f"❌ Erro ao atualizar contador: {e}")
+
+    def validar_transferencia(self):
+        """Valida transferência antes de executar - CORRIGIDO"""
+        try:
+            # Obter seleções
+            alunos_selecionados = []
+            for item in self.checkboxes_alunos:
+                if item['var'].get():
+                    alunos_selecionados.append(item['aluno'])
+            
+            if not alunos_selecionados:
+                messagebox.showwarning("Atenção", "Selecione pelo menos um aluno")
+                return
+            
+            turma_destino = self.turma_destino_var.get()
+            if not turma_destino:
+                messagebox.showwarning("Atenção", "Selecione a turma de destino")
+                return
+            
+            # Encontrar IDs das turmas
+            turma_origem_id = None
+            turma_destino_id = None
+            
+            turma_origem = self.turma_origem_var.get()
+            
+            for turma in self.turmas_data:
+                if turma['display'] == turma_origem:
+                    turma_origem_id = turma['id']
+                if turma['display'] == turma_destino:
+                    turma_destino_id = turma['id']
+            
+            # Validar cada aluno
+            problemas_gerais = []
+            
+            if turma_destino == turma_origem:
+                problemas_gerais.append("• Turma de destino deve ser diferente da origem")
+            
+            problemas_alunos = []
+            for aluno in alunos_selecionados:
+                validacao = self.transferencia_service.validar_transferencia(
+                    aluno['id'], turma_origem_id, turma_destino_id
                 )
                 
-                self.alunos_origem_data.append({
-                    'item_id': item_id,
-                    'aluno_data': aluno
-                })
-
-            # Atualizar contador
-            self.contador_alunos_label.config(
-                text=f"✅ {len(alunos_ativos)} aluno(s) disponível(is)", 
-                fg='#28a745'
-            )
-
-            # Atualizar turmas de destino (excluir a origem)
-            if self.tipo_operacao_var.get() == "TRANSFERENCIA":
-                self.atualizar_turmas_destino(turma_display)
+                if not validacao['success']:
+                    for problema in validacao['problemas']:
+                        problemas_alunos.append(f"• {aluno['nome']}: {problema}")
             
-            self.atualizar_resumo()
-            print(f"✅ {len(alunos_ativos)} alunos carregados")
-
-        except Exception as e:
-            error_msg = f"Erro ao carregar alunos: {str(e)}"
-            print(f"❌ {error_msg}")
-            self.contador_alunos_label.config(text="❌ Erro ao carregar alunos", fg='#dc3545')
-            messagebox.showerror("Erro", error_msg)
-
-    def atualizar_turmas_destino(self, turma_origem_excluir):
-        """Atualiza lista de turmas de destino excluindo a origem"""
-        try:
-            turmas_destino = [t for t in self.turma_origem_combo['values'] if t != turma_origem_excluir]
-            self.turma_destino_combo['values'] = turmas_destino
-            self.turma_destino_var.set('')
+            # Mostrar resultado
+            todos_problemas = problemas_gerais + problemas_alunos
             
-            self.status_destino_label.config(
-                text=f"✅ {len(turmas_destino)} turmas de destino disponíveis", 
-                fg='#28a745'
-            )
-            
-        except Exception as e:
-            print(f"❌ Erro ao atualizar turmas destino: {e}")
-
-    def on_aluno_click(self, event):
-        """Callback para clique em aluno"""
-        item = self.alunos_tree.identify('item', event.x, event.y)
-        if item:
-            self.toggle_aluno_selection(item=item)
-
-    def toggle_aluno_selection(self, event=None, item=None):
-        """Alterna seleção de aluno"""
-        if not item and event:
-            item = self.alunos_tree.selection()[0] if self.alunos_tree.selection() else None
-        
-        if not item:
-            return
-
-        # Alternar checkbox
-        current_text = self.alunos_tree.item(item, 'text')
-        if current_text == '☐':
-            self.alunos_tree.item(item, text='☑️')
-            if item not in self.alunos_selecionados:
-                self.alunos_selecionados.append(item)
-        else:
-            self.alunos_tree.item(item, text='☐')
-            if item in self.alunos_selecionados:
-                self.alunos_selecionados.remove(item)
-        
-        self.atualizar_resumo()
-
-    def selecionar_todos_alunos(self):
-        """Seleciona todos os alunos"""
-        for item in self.alunos_tree.get_children():
-            self.alunos_tree.item(item, text='☑️')
-            if item not in self.alunos_selecionados:
-                self.alunos_selecionados.append(item)
-        self.atualizar_resumo()
-
-    def limpar_selecao_alunos(self):
-        """Limpa seleção de alunos"""
-        for item in self.alunos_tree.get_children():
-            self.alunos_tree.item(item, text='☐')
-        self.alunos_selecionados = []
-        self.atualizar_resumo()
-
-    def atualizar_resumo(self):
-        """Atualiza resumo da operação"""
-        try:
-            if not self.alunos_selecionados:
-                resumo = "Selecione pelo menos um aluno para continuar"
-                self.execute_button.config(state='disabled', bg='#6c757d')
+            if todos_problemas:
+                messagebox.showerror("❌ Problemas Encontrados", "\n".join(todos_problemas))
             else:
-                operacao = "transferir" if self.tipo_operacao_var.get() == "TRANSFERENCIA" else "desligar"
-                plural = "alunos" if len(self.alunos_selecionados) > 1 else "aluno"
-                
-                resumo = f"📋 Pronto para {operacao} {len(self.alunos_selecionados)} {plural}:\n"
-                
-                # Listar alunos selecionados (máximo 3)
-                count = 0
-                for item_id in self.alunos_selecionados[:3]:
-                    values = self.alunos_tree.item(item_id, 'values')
-                    if values:
-                        resumo += f"   • {values[0]}\n"
-                        count += 1
-                
-                if len(self.alunos_selecionados) > 3:
-                    resumo += f"   • ... e mais {len(self.alunos_selecionados) - 3}\n"
-                
-                # Verificar se pode executar
-                can_execute = True
-                if self.tipo_operacao_var.get() == "TRANSFERENCIA":
-                    if not self.turma_destino_var.get():
-                        resumo += "\n⚠️ Selecione uma turma de destino"
-                        can_execute = False
-                    else:
-                        resumo += f"\n🎯 Destino: {self.turma_destino_var.get()}"
-                
-                if can_execute:
-                    self.execute_button.config(state='normal', bg='#007bff')
-                else:
-                    self.execute_button.config(state='disabled', bg='#6c757d')
-
-            self.resumo_label.config(text=resumo)
-
-        except Exception as e:
-            print(f"❌ Erro ao atualizar resumo: {e}")
-
-    def carregar_historico(self):
-        """Carrega histórico de transferências"""
-        try:
-            # Limpar histórico atual
-            for item in self.history_tree.get_children():
-                self.history_tree.delete(item)
+                messagebox.showinfo("✅ Validação OK", 
+                    f"Transferência validada com sucesso!\n\n"
+                    f"• {len(alunos_selecionados)} aluno(s) selecionado(s)\n"
+                    f"• Turma destino: {turma_destino}\n"
+                    f"• Motivo: {self.motivo_var.get()}\n\n"
+                    f"Clique em 'Transferir' para executar.")
             
-            # Obter histórico
-            historico = self.transferencia_service.obter_historico_avancado(limite=15)
-            
-            for item in historico:
-                self.history_tree.insert('', 'end', values=(
-                    format_date(item['data_transferencia']),
-                    item['tipo_transferencia'],
-                    item['aluno_nome'],
-                    item['turma_origem'] or 'N/A',
-                    item['turma_destino'] or 'N/A',
-                    (item['motivo'] or '')[:40] + ('...' if len(item.get('motivo', '')) > 40 else '')
-                ))
-                
         except Exception as e:
-            print(f"❌ Erro ao carregar histórico: {e}")
-
-    def executar_operacao(self):
-        """Executa a operação selecionada"""
-        if not self.alunos_selecionados:
-            messagebox.showwarning("Aviso", "Selecione pelo menos um aluno!")
-            return
-
-        if self.tipo_operacao_var.get() == "TRANSFERENCIA":
-            self.executar_transferencia()
-        else:
-            self.executar_desligamento()
+            print(f"❌ Erro na validação: {e}")
+            messagebox.showerror("Erro", f"Erro na validação:\n{e}")
 
     def executar_transferencia(self):
-        """Executa transferência de alunos"""
-        if not self.turma_destino_var.get():
-            messagebox.showwarning("Aviso", "Selecione uma turma de destino!")
-            return
-
+        """Executa transferência dos alunos selecionados - CORRIGIDO"""
         try:
-            turma_origem_display = self.turma_origem_var.get()
-            turma_destino_display = self.turma_destino_var.get()
+            # Obter seleções
+            alunos_selecionados = []
+            for item in self.checkboxes_alunos:
+                if item['var'].get():
+                    alunos_selecionados.append(item['aluno'])
             
-            turma_origem = self.turmas_data[turma_origem_display]
-            turma_destino = self.turmas_data[turma_destino_display]
-            
-            # Obter dados dos alunos selecionados
-            alunos_para_transferir = []
-            for item_id in self.alunos_selecionados:
-                tags = self.alunos_tree.item(item_id, 'tags')
-                if tags:
-                    aluno_id = int(tags[0])
-                    values = self.alunos_tree.item(item_id, 'values')
-                    alunos_para_transferir.append({
-                        'id': aluno_id,
-                        'nome': values[0] if values else 'N/A'
-                    })
-
-            # Confirmação
-            nomes_alunos = [a['nome'] for a in alunos_para_transferir]
-            confirm_msg = f"""Confirmar transferência?
-
-👥 Alunos ({len(nomes_alunos)}):
-{chr(10).join(f'   • {nome}' for nome in nomes_alunos[:5])}
-{f'   • ... e mais {len(nomes_alunos) - 5}' if len(nomes_alunos) > 5 else ''}
-
-🏫 De: {turma_origem['nome']} - {turma_origem['serie']}
-🎯 Para: {turma_destino['nome']} - {turma_destino['serie']}
-📝 Motivo: {self.motivo_var.get()}"""
-
-            if not messagebox.askyesno("Confirmar Transferência", confirm_msg):
+            if not alunos_selecionados:
+                messagebox.showwarning("Atenção", "Selecione pelo menos um aluno")
                 return
+            
+            turma_destino = self.turma_destino_var.get()
+            if not turma_destino:
+                messagebox.showwarning("Atenção", "Selecione a turma de destino")
+                return
+            
+            # Encontrar IDs das turmas
+            turma_origem_id = None
+            turma_destino_id = None
+            
+            turma_origem = self.turma_origem_var.get()
+            
+            for turma in self.turmas_data:
+                if turma['display'] == turma_origem:
+                    turma_origem_id = turma['id']
+                if turma['display'] == turma_destino:
+                    turma_destino_id = turma['id']
+            
+            if not turma_origem_id or not turma_destino_id:
+                messagebox.showerror("Erro", "Erro ao identificar turmas")
+                return
+            
+            # Confirmar operação
+            confirmacao = f"""
+    🔄 CONFIRMAR TRANSFERÊNCIA
 
+    📤 De: {turma_origem}
+    📥 Para: {turma_destino}
+
+    👥 Alunos selecionados: {len(alunos_selecionados)}
+
+    📝 Motivo: {self.motivo_var.get()}
+
+    ⚠️ Esta operação não pode ser desfeita!
+
+    Deseja continuar?
+            """
+            
+            if not messagebox.askyesno("Confirmar Transferência", confirmacao.strip()):
+                return
+            
             # Executar transferências
             sucessos = 0
-            erros = 0
+            erros = []
             
-            for aluno in alunos_para_transferir:
+            motivo = self.motivo_var.get()
+            observacoes = self.entry_observacoes.get("1.0", tk.END).strip()
+            
+            for aluno in alunos_selecionados:
                 try:
-                    # Determinar tipo de transferência
-                    if turma_origem['ano_letivo'] == turma_destino['ano_letivo']:
-                        # Mesmo ano letivo
-                        resultado = self.transferencia_service.transferir_aluno_mesmo_ano(
-                            aluno['id'], turma_origem['id'], turma_destino['id'],
-                            False, None, self.motivo_var.get(), ""
-                        )
-                    else:
-                        # Diferente ano letivo - implementar
-                        messagebox.showinfo("Info", "Transferência entre anos letivos será implementada")
-                        continue
+                    # Usar o serviço corrigido
+                    resultado = self.transferencia_service.transferir_aluno(
+                        aluno['id'], 
+                        turma_origem_id, 
+                        turma_destino_id,
+                        motivo,
+                        observacoes
+                    )
                     
                     if resultado['success']:
                         sucessos += 1
+                        print(f"✅ {aluno.get('nome', '')} transferido com sucesso")
                     else:
-                        erros += 1
-                        print(f"❌ Erro ao transferir {aluno['nome']}: {resultado.get('error', 'Erro desconhecido')}")
+                        erros.append(f"• {aluno.get('nome', '')}: {resultado.get('error', 'Erro desconhecido')}")
+                        print(f"❌ Erro ao transferir {aluno.get('nome', '')}: {resultado.get('error', '')}")
                         
                 except Exception as e:
-                    erros += 1
-                    print(f"❌ Erro ao transferir {aluno['nome']}: {str(e)}")
-
-            # Resultado
+                    erros.append(f"• {aluno.get('nome', '')}: {str(e)}")
+                    print(f"❌ Exceção ao transferir {aluno.get('nome', '')}: {e}")
+            
+            # Mostrar resultado
             if sucessos > 0:
-                messagebox.showinfo(
-                    "Transferências Concluídas",
-                    f"✅ {sucessos} aluno(s) transferido(s) com sucesso!"
-                    f"{f' | ❌ {erros} erro(s)' if erros > 0 else ''}"
-                )
+                mensagem = f"✅ {sucessos} aluno(s) transferido(s) com sucesso!"
+                if erros:
+                    mensagem += f"\n\n❌ Erros:\n" + "\n".join(erros)
+                
+                messagebox.showinfo("Transferência Concluída", mensagem)
                 
                 # Recarregar dados
-                self.carregar_dados_iniciais()
-                self.limpar_selecao_alunos()
+                self.carregar_turmas()
+                self.limpar_selecao()
+                
+                # Limpar turma origem para forçar nova seleção
+                self.turma_origem_var.set('')
+                self.alunos_turma_origem = []
+                
+                # Limpar lista de alunos
+                for widget in self.scrollable_alunos.winfo_children():
+                    widget.destroy()
+                self.checkboxes_alunos = []
+                
+                self.habilitar_controles(False)
+                self.atualizar_info("Transferência concluída!\nSelecione nova turma de origem")
+                
             else:
-                messagebox.showerror("Erro", f"Nenhum aluno foi transferido.\n{erros} erro(s) encontrado(s)")
-
+                messagebox.showerror("Erro na Transferência", 
+                    "Nenhuma transferência foi concluída:\n\n" + "\n".join(erros))
+                
         except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao executar transferência: {str(e)}")
+            print(f"❌ Erro crítico na transferência: {e}")
+            messagebox.showerror("Erro", f"Erro crítico durante a transferência:\n{e}")
 
-    def executar_desligamento(self):
-        """Executa desligamento de alunos"""
-        messagebox.showinfo("Em Desenvolvimento", "Funcionalidade de desligamento será implementada em breve")
+    def transferir_aluno_simples(self, aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes):
+        """Executa transferência simples de aluno"""
+        try:
+            from database.connection import db
+            
+            conn = db.get_connection()
+            cursor = conn.cursor()
+            
+            # Atualizar turma do aluno
+            cursor.execute("""
+                UPDATE alunos 
+                SET turma_id = ?
+                WHERE id = ?
+            """, (turma_destino_id, aluno_id))
+            
+            # Registrar no histórico
+            cursor.execute("""
+                INSERT INTO historico_transferencias 
+                (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes, tipo_transferencia)
+                VALUES (?, ?, ?, ?, ?, 'TRANSFERENCIA')
+            """, (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes))
+            
+            conn.commit()
+            conn.close()
+            
+            return {'success': True}
+            
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            return {'success': False, 'error': str(e)}
+
+    def carregar_historico(self):
+        """Carrega histórico recente de transferências - CORRIGIDO"""
+        try:
+            # Usar o serviço corrigido
+            historico = self.transferencia_service.obter_historico_transferencias(10)
+            
+            # Limpar lista
+            self.lista_historico.delete(0, tk.END)
+            
+            # Inserir histórico
+            for item in historico:
+                try:
+                    from utils.formatters import format_date
+                    data = format_date(item['data_transferencia']) if item['data_transferencia'] else "N/A"
+                    texto = f"{data} - {item['aluno_nome']} ({item['turma_origem']} → {item['turma_destino']})"
+                    self.lista_historico.insert(tk.END, texto)
+                except Exception as e:
+                    print(f"⚠️ Erro ao formatar item do histórico: {e}")
+                    texto = f"{item['aluno_nome']} - Transferência registrada"
+                    self.lista_historico.insert(tk.END, texto)
+            
+        except Exception as e:
+            print(f"❌ Erro ao carregar histórico: {e}")
+            # Inserir mensagem de erro na lista
+            self.lista_historico.delete(0, tk.END)
+            self.lista_historico.insert(tk.END, "Erro ao carregar histórico")
+
+    def habilitar_controles(self, habilitar):
+        """Habilita/desabilita controles de transferência"""
+        estado = 'normal' if habilitar else 'disabled'
+        
+        # Atualizar contador
+        self.atualizar_contador_selecionados()
+
+    def atualizar_info(self, texto):
+        """Atualiza informações na interface"""
+        self.lbl_info.config(text=texto)
+
+    def mostrar_erro(self, mensagem):
+        """Mostra tela de erro"""
+        error_frame = tk.Frame(self.parent_frame, bg='white')
+        error_frame.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(
+            error_frame,
+            text="⚠️ Erro no Módulo de Transferências",
+            font=('Arial', 18, 'bold'),
+            bg='white',
+            fg='#e74c3c'
+        ).pack(pady=(100, 20))
+        
+        tk.Label(
+            error_frame,
+            text=mensagem,
+            font=('Arial', 12),
+            bg='white',
+            fg='#6c757d',
+            wraplength=600
+        ).pack(pady=10)

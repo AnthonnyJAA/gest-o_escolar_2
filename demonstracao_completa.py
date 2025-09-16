@@ -4,7 +4,7 @@ Demonstração Completa dos Cenários Avançados de Transferência
 Execute este arquivo para ver todos os 4 cenários em funcionamento
 """
 
-from services.transferencia_avancada_service import TransferenciaAvancadaService
+from services.transferencia_service import TransferenciaAvancadaService
 from services.aluno_service import AlunoService
 from services.turma_service import TurmaService
 from database.connection import db
