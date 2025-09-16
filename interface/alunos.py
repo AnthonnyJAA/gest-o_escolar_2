@@ -1027,35 +1027,39 @@ class AlunosInterface:
         # Botões de ação
         action_frame = tk.Frame(table_frame, bg='white')
         action_frame.pack(fill=tk.X, padx=20, pady=(10, 15))
-        
+
         separator2 = tk.Frame(action_frame, height=2, bg='#dee2e6')
         separator2.pack(fill=tk.X, pady=(0, 15))
-        
+
+        btn_style = {
+            "font": ('Arial', 12, 'bold'),   # Fonte maior
+            "padx": 25,                      # Mais largura interna
+            "pady": 12,                      # Mais altura interna
+            "relief": 'flat',
+            "cursor": 'hand2'
+        }
+
         editar_btn = tk.Button(
             action_frame, text="✏️ Editar", command=self.editar_aluno,
-            font=('Arial', 10, 'bold'), bg='#007bff',
-            fg='white', padx=15, pady=8, relief='flat', cursor='hand2'
+            bg='#007bff', fg='white', **btn_style
         )
-        editar_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
+        editar_btn.pack(side=tk.LEFT, padx=(0, 15))
+
         excluir_btn = tk.Button(
             action_frame, text="🗑️ Excluir", command=self.excluir_aluno,
-            font=('Arial', 10, 'bold'), bg='#dc3545',
-            fg='white', padx=15, pady=8, relief='flat', cursor='hand2'
+            bg='#dc3545', fg='white', **btn_style
         )
-        excluir_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
+        excluir_btn.pack(side=tk.LEFT, padx=(0, 15))
+
         historico_btn = tk.Button(
             action_frame, text="💰 Histórico", command=self.ver_historico_financeiro,
-            font=('Arial', 10, 'bold'), bg='#fd7e14',
-            fg='white', padx=15, pady=8, relief='flat', cursor='hand2'
+            bg='#fd7e14', fg='white', **btn_style
         )
-        historico_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
+        historico_btn.pack(side=tk.LEFT, padx=(0, 15))
+
         atualizar_btn = tk.Button(
             action_frame, text="🔄 Atualizar", command=self.carregar_alunos,
-            font=('Arial', 10, 'bold'), bg='#6c757d',
-            fg='white', padx=15, pady=8, relief='flat', cursor='hand2'
+            bg='#6c757d', fg='white', **btn_style
         )
         atualizar_btn.pack(side=tk.LEFT)
         

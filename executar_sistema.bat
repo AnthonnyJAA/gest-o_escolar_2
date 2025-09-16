@@ -81,7 +81,7 @@ goto fim
 :execucao_direta
 echo.
 echo 🎯 Executando sistema principal...
-python main.py
+python main_sistema_corrigido.py
 if errorlevel 1 (
     echo.
     echo ❌ Erro ao executar o sistema principal!

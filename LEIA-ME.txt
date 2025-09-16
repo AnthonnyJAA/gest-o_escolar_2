@@ -1,0 +1,73 @@
+🎓 SISTEMA DE GESTÃO ESCOLAR v2.1
+🔄 TRANSFERÊNCIAS AVANÇADAS - 4 CENÁRIOS IMPLEMENTADOS
+
+═══════════════════════════════════════════════════════════
+🚀 EXECUÇÃO RÁPIDA - ESCOLHA UMA OPÇÃO:
+═══════════════════════════════════════════════════════════
+
+1️⃣ SISTEMA COMPLETO (RECOMENDADO):
+   python main_avancado.py
+   
+   👆 Execute este comando para usar a interface gráfica completa.
+   Clique em "🔄 Transferências" para acessar os cenários.
+
+2️⃣ DEMONSTRAÇÃO AUTOMÁTICA:
+   python demonstracao_completa.py
+   
+   👆 Veja os 4 cenários funcionando automaticamente no terminal.
+
+3️⃣ INSTALAÇÃO GUIADA (WINDOWS):
+   INSTALACAO_RAPIDA.bat
+   
+   👆 Duplo-clique neste arquivo para instalação assistida.
+
+═══════════════════════════════════════════════════════════
+🎯 CENÁRIOS IMPLEMENTADOS:
+═══════════════════════════════════════════════════════════
+
+🔄 CENÁRIO 1: Mesmo Ano Letivo
+   Ex: 1º Ano 2025 → 2º Ano 2025
+   ✅ Pergunta se altera mensalidade
+   ✅ Atualiza apenas pendências
+
+📅 CENÁRIO 2: Novo Ano Letivo  
+   Ex: 5º Ano 2025 → 6º Ano 2026
+   ✅ Preserva pendências antigas
+   ✅ Cria novo contrato 2026
+
+❌ CENÁRIO 3: Desligamento
+   Ex: Aluno sai da escola
+   ✅ Marca como inativo
+   ✅ Preserva todas as pendências
+
+✅ CENÁRIO 4: Reativação
+   Ex: Ex-aluno retorna
+   ✅ Reativa cadastro
+   ✅ Novo contrato + pendências antigas
+
+═══════════════════════════════════════════════════════════
+📦 DEPENDÊNCIAS (se necessário):
+═══════════════════════════════════════════════════════════
+
+pip install matplotlib numpy
+
+═══════════════════════════════════════════════════════════
+🎯 FOCO PRINCIPAL - COMO TESTAR:
+═══════════════════════════════════════════════════════════
+
+1. Execute: python main_avancado.py
+2. Na interface, clique em "🔄 Transferências"  
+3. Use os radio buttons para escolher o cenário
+4. Siga as instruções na tela
+5. Veja os resultados e relatórios
+
+═══════════════════════════════════════════════════════════
+📚 DOCUMENTAÇÃO:
+═══════════════════════════════════════════════════════════
+
+📄 README_COMPLETO.md - Documentação detalhada
+📄 RESUMO_FINAL.md - Lista de arquivos criados
+
+═══════════════════════════════════════════════════════════
+🎉 SISTEMA PRONTO PARA USO! 🚀
+═══════════════════════════════════════════════════════════

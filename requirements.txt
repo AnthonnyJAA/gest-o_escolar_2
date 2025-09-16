@@ -1,11 +1,41 @@
-# requirements.txt
-# Dependências necessárias para os gráficos interativos
+# -*- coding: utf-8 -*-
+# Sistema de Gestão Escolar v2.1 - Dependências
 
+# Gráficos interativos (obrigatório para dashboard)
 matplotlib>=3.5.0
 numpy>=1.21.0
 
-# Instruções de instalação:
-# pip install matplotlib numpy
+# Formatação de dados (opcional, mas recomendado)
+python-dateutil>=2.8.0
 
-# Nota: Tkinter já vem incluído com Python
-# SQLite3 também é padrão no Python
+# Processamento CSV (incluído no Python, listado para referência)
+# csv - built-in module
+
+# Interface gráfica (incluído no Python, listado para referência)  
+# tkinter - built-in module
+
+# Banco de dados (incluído no Python, listado para referência)
+# sqlite3 - built-in module
+
+# Sistema operacional (incluído no Python, listado para referência)
+# os - built-in module
+# sys - built-in module
+# datetime - built-in module
+# time - built-in module
+
+# === INSTRUÇÕES DE INSTALAÇÃO ===
+# Execute no terminal:
+# pip install matplotlib numpy python-dateutil
+#
+# Ou instale tudo de uma vez:
+# pip install -r requirements.txt
+
+# === VERIFICAÇÃO ===
+# Para verificar se instalou corretamente:
+# python -c "import matplotlib, numpy; print('✅ Dependências OK!')"
+
+# === COMPATIBILIDADE ===
+# Python 3.6+ (recomendado Python 3.8+)
+# Windows, Linux, macOS
+# RAM mínima: 4GB
+# Espaço em disco: 100MB
