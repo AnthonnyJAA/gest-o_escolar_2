@@ -584,8 +584,10 @@ class TransferenciaInterface:
             messagebox.showerror("Erro", f"Erro na validação:\n{e}")
 
     def executar_transferencia(self):
-        """Executa transferência dos alunos selecionados - CORRIGIDO"""
+        """Executa transferência dos alunos selecionados - VERSÃO FINAL CORRIGIDA"""
         try:
+            print("🚀 Iniciando processo de transferência...")
+            
             # Obter seleções
             alunos_selecionados = []
             for item in self.checkboxes_alunos:
@@ -617,6 +619,10 @@ class TransferenciaInterface:
                 messagebox.showerror("Erro", "Erro ao identificar turmas")
                 return
             
+            print(f"📊 Transferindo {len(alunos_selecionados)} aluno(s)")
+            print(f"📤 Turma origem ID: {turma_origem_id}")
+            print(f"📥 Turma destino ID: {turma_destino_id}")
+            
             # Confirmar operação
             confirmacao = f"""
     🔄 CONFIRMAR TRANSFERÊNCIA
@@ -625,6 +631,8 @@ class TransferenciaInterface:
     📥 Para: {turma_destino}
 
     👥 Alunos selecionados: {len(alunos_selecionados)}
+    {chr(10).join([f"   • {aluno['nome']}" for aluno in alunos_selecionados[:5]])}
+    {"   • ..." if len(alunos_selecionados) > 5 else ""}
 
     📝 Motivo: {self.motivo_var.get()}
 
@@ -640,11 +648,16 @@ class TransferenciaInterface:
             sucessos = 0
             erros = []
             
-            motivo = self.motivo_var.get()
+            motivo = self.motivo_var.get() or "Transferência"
             observacoes = self.entry_observacoes.get("1.0", tk.END).strip()
             
-            for aluno in alunos_selecionados:
+            print(f"📝 Motivo: {motivo}")
+            print(f"💭 Observações: {observacoes}")
+            
+            for i, aluno in enumerate(alunos_selecionados):
                 try:
+                    print(f"🔄 Transferindo {i+1}/{len(alunos_selecionados)}: {aluno['nome']} (ID: {aluno['id']})")
+                    
                     # Usar o serviço corrigido
                     resultado = self.transferencia_service.transferir_aluno(
                         aluno['id'], 
@@ -660,20 +673,27 @@ class TransferenciaInterface:
                     else:
                         erros.append(f"• {aluno.get('nome', '')}: {resultado.get('error', 'Erro desconhecido')}")
                         print(f"❌ Erro ao transferir {aluno.get('nome', '')}: {resultado.get('error', '')}")
+                    
+                    # Pequena pausa para não sobrecarregar o banco
+                    import time
+                    time.sleep(0.1)
                         
                 except Exception as e:
                     erros.append(f"• {aluno.get('nome', '')}: {str(e)}")
                     print(f"❌ Exceção ao transferir {aluno.get('nome', '')}: {e}")
             
-            # Mostrar resultado
+            # Mostrar resultado final
+            print(f"📊 Resultado: {sucessos} sucessos, {len(erros)} erros")
+            
             if sucessos > 0:
-                mensagem = f"✅ {sucessos} aluno(s) transferido(s) com sucesso!"
+                mensagem_final = f"✅ {sucessos} aluno(s) transferido(s) com sucesso!"
                 if erros:
-                    mensagem += f"\n\n❌ Erros:\n" + "\n".join(erros)
+                    mensagem_final += f"\n\n❌ Erros encontrados:\n" + "\n".join(erros)
                 
-                messagebox.showinfo("Transferência Concluída", mensagem)
+                messagebox.showinfo("Transferência Concluída", mensagem_final)
                 
                 # Recarregar dados
+                print("🔄 Recarregando interface...")
                 self.carregar_turmas()
                 self.limpar_selecao()
                 
@@ -689,13 +709,17 @@ class TransferenciaInterface:
                 self.habilitar_controles(False)
                 self.atualizar_info("Transferência concluída!\nSelecione nova turma de origem")
                 
+                print("✅ Interface atualizada!")
+                
             else:
                 messagebox.showerror("Erro na Transferência", 
-                    "Nenhuma transferência foi concluída:\n\n" + "\n".join(erros))
+                    "❌ Nenhuma transferência foi concluída.\n\nErros encontrados:\n\n" + "\n".join(erros))
+                print("❌ Nenhuma transferência concluída")
                 
         except Exception as e:
             print(f"❌ Erro crítico na transferência: {e}")
-            messagebox.showerror("Erro", f"Erro crítico durante a transferência:\n{e}")
+            messagebox.showerror("Erro Crítico", f"Erro crítico durante a transferência:\n\n{str(e)}\n\nConsulte o console para mais detalhes.")
+
 
     def transferir_aluno_simples(self, aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes):
         """Executa transferência simples de aluno"""

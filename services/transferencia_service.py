@@ -14,48 +14,44 @@ class TransferenciaService:
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            # Verificar se tabela existe
+            # Verificar se tabela existe e tem estrutura correta
             cursor.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT sql FROM sqlite_master 
                 WHERE type='table' AND name='historico_transferencias'
             """)
             
-            if not cursor.fetchone():
-                # Criar tabela se não existir
+            result = cursor.fetchone()
+            
+            if not result or 'data_transferencia TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP' not in result[0]:
+                print("🔧 Corrigindo estrutura da tabela de transferências...")
+                
+                # Recriar tabela com estrutura correta
+                cursor.execute("DROP TABLE IF EXISTS historico_transferencias")
+                
                 cursor.execute("""
                     CREATE TABLE historico_transferencias (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         aluno_id INTEGER NOT NULL,
                         turma_origem_id INTEGER,
                         turma_destino_id INTEGER,
-                        motivo TEXT NOT NULL,
+                        motivo TEXT NOT NULL DEFAULT 'Transferência',
                         observacoes TEXT,
-                        data_transferencia TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        data_transferencia TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         tipo_transferencia TEXT DEFAULT 'TRANSFERENCIA',
+                        usuario TEXT DEFAULT 'Sistema',
                         FOREIGN KEY (aluno_id) REFERENCES alunos (id),
                         FOREIGN KEY (turma_origem_id) REFERENCES turmas (id),
                         FOREIGN KEY (turma_destino_id) REFERENCES turmas (id)
                     )
                 """)
-                print("✅ Tabela historico_transferencias criada")
-            else:
-                # Verificar se coluna tipo_transferencia existe
-                cursor.execute("PRAGMA table_info(historico_transferencias)")
-                colunas = [col[1] for col in cursor.fetchall()]
                 
-                if 'tipo_transferencia' not in colunas:
-                    cursor.execute("""
-                        ALTER TABLE historico_transferencias 
-                        ADD COLUMN tipo_transferencia TEXT DEFAULT 'TRANSFERENCIA'
-                    """)
-                    print("✅ Coluna tipo_transferencia adicionada")
+                conn.commit()
+                print("✅ Tabela de transferências corrigida!")
             
-            conn.commit()
             conn.close()
             
         except sqlite3.Error as e:
             if 'conn' in locals():
-                conn.rollback()
                 conn.close()
             print(f"❌ Erro ao verificar estrutura: {e}")
 
@@ -140,6 +136,8 @@ class TransferenciaService:
         cursor = conn.cursor()
         
         try:
+            print(f"🔄 Iniciando transferência do aluno ID {aluno_id}")
+            
             # Verificar se aluno existe e está ativo
             cursor.execute("""
                 SELECT nome, status, turma_id 
@@ -167,20 +165,31 @@ class TransferenciaService:
             if turma_origem_id == turma_destino_id:
                 return {'success': False, 'error': 'Turma de origem deve ser diferente da turma de destino'}
             
-            # Executar transferência
+            print(f"✅ Validações OK - Transferindo {aluno_data[0]}")
+            
+            # === EXECUTAR TRANSFERÊNCIA ===
+            
+            # 1. Atualizar turma do aluno
             cursor.execute("""
                 UPDATE alunos 
                 SET turma_id = ?
                 WHERE id = ?
             """, (turma_destino_id, aluno_id))
             
-            # Registrar no histórico
+            print(f"✅ Turma do aluno atualizada: {aluno_data[2]} → {turma_destino_id}")
+            
+            # 2. Registrar no histórico com timestamp explícito
+            data_atual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
             cursor.execute("""
                 INSERT INTO historico_transferencias 
-                (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes, tipo_transferencia)
-                VALUES (?, ?, ?, ?, ?, 'TRANSFERENCIA')
-            """, (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes))
+                (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes, data_transferencia, tipo_transferencia, usuario)
+                VALUES (?, ?, ?, ?, ?, ?, 'TRANSFERENCIA', 'Sistema')
+            """, (aluno_id, turma_origem_id, turma_destino_id, motivo or 'Transferência', observacoes or '', data_atual))
             
+            print(f"✅ Histórico registrado em {data_atual}")
+            
+            # Commit das mudanças
             conn.commit()
             
             # Obter nomes das turmas para retorno
@@ -193,6 +202,8 @@ class TransferenciaService:
             turmas_info = cursor.fetchone()
             conn.close()
             
+            print(f"✅ Transferência concluída: {aluno_data[0]}")
+            
             return {
                 'success': True,
                 'aluno_nome': aluno_data[0],
@@ -203,7 +214,14 @@ class TransferenciaService:
         except sqlite3.Error as e:
             conn.rollback()
             conn.close()
+            print(f"❌ Erro SQL na transferência: {e}")
             return {'success': False, 'error': f'Erro no banco de dados: {str(e)}'}
+        
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            print(f"❌ Erro geral na transferência: {e}")
+            return {'success': False, 'error': f'Erro inesperado: {str(e)}'}
 
     def obter_historico_transferencias(self, limite=10):
         """Obtém histórico de transferências"""
@@ -330,3 +348,36 @@ class TransferenciaService:
                 'success': False,
                 'problemas': [f'Erro no banco: {str(e)}']
             }
+
+    def testar_insercao_historico(self):
+        """Testa inserção no histórico para debug"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Teste simples de inserção
+            data_teste = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            cursor.execute("""
+                INSERT INTO historico_transferencias 
+                (aluno_id, turma_origem_id, turma_destino_id, motivo, observacoes, data_transferencia)
+                VALUES (1, 1, 2, 'Teste', 'Teste de inserção', ?)
+            """, (data_teste,))
+            
+            cursor.execute("SELECT last_insert_rowid()")
+            novo_id = cursor.fetchone()[0]
+            
+            # Remover teste
+            cursor.execute("DELETE FROM historico_transferencias WHERE id = ?", (novo_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            print("✅ Teste de inserção no histórico: OK")
+            return True
+            
+        except sqlite3.Error as e:
+            conn.rollback()
+            conn.close()
+            print(f"❌ Erro no teste de inserção: {e}")
+            return False

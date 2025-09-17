@@ -109,23 +109,23 @@ def inicializar_banco():
         print(f"❌ Erro crítico no banco: {e}")
         return False
 
-def criar_dados_exemplo():
-    """Cria dados de exemplo se necessário"""
-    try:
-        from services.aluno_service import AlunoService
+# def criar_dados_exemplo():
+#     """Cria dados de exemplo se necessário"""
+#     try:
+#         from services.aluno_service import AlunoService
         
-        aluno_service = AlunoService()
-        alunos = aluno_service.listar_alunos()
+#         aluno_service = AlunoService()
+#         alunos = aluno_service.listar_alunos()
         
-        if len(alunos) < 5:
-            print("📊 Criando dados de exemplo...")
-            from create_sample_data import criar_dados_exemplo
-            criar_dados_exemplo()
-            print("✅ Dados de exemplo criados")
-        else:
-            print(f"✅ Dados existentes: {len(alunos)} alunos")
+#         if len(alunos) < 5:
+#             print("📊 Criando dados de exemplo...")
+#             from create_sample_data import criar_dados_exemplo
+#             criar_dados_exemplo()
+#             print("✅ Dados de exemplo criados")
+#         else:
+#             print(f"✅ Dados existentes: {len(alunos)} alunos")
         
-        return True
+#         return True
         
     except Exception as e:
         print(f"⚠️ Aviso ao criar dados de exemplo: {e}")
@@ -371,9 +371,9 @@ def main():
         input("Pressione Enter para sair...")
         return 1
     
-    # 4. Criar dados de exemplo
-    print("📊 Verificando dados de exemplo...")
-    criar_dados_exemplo()
+    # # 4. Criar dados de exemplo
+    # print("📊 Verificando dados de exemplo...")
+    # criar_dados_exemplo()
     
     print("\n✅ TODAS AS VERIFICAÇÕES CONCLUÍDAS!")
     print("🚀 Iniciando interface gráfica...")

@@ -92,17 +92,22 @@ class DatabaseConnection:
                 )
             """)
             
-            # === TABELA HISTÓRICO DE TRANSFERÊNCIAS ===
+            # === RECRIAR TABELA HISTÓRICO DE TRANSFERÊNCIAS CORRIGIDA ===
+            # Primeiro, drop se existe (para corrigir problemas)
+            cursor.execute("DROP TABLE IF EXISTS historico_transferencias")
+            
+            # Criar nova tabela com estrutura correta
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS historico_transferencias (
+                CREATE TABLE historico_transferencias (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     aluno_id INTEGER NOT NULL,
                     turma_origem_id INTEGER,
                     turma_destino_id INTEGER,
-                    motivo TEXT NOT NULL,
+                    motivo TEXT NOT NULL DEFAULT 'Transferência',
                     observacoes TEXT,
-                    data_transferencia TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    data_transferencia TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     tipo_transferencia TEXT DEFAULT 'TRANSFERENCIA',
+                    usuario TEXT DEFAULT 'Sistema',
                     FOREIGN KEY (aluno_id) REFERENCES alunos (id),
                     FOREIGN KEY (turma_origem_id) REFERENCES turmas (id),
                     FOREIGN KEY (turma_destino_id) REFERENCES turmas (id)
@@ -120,8 +125,11 @@ class DatabaseConnection:
                 )
             """)
             
-            # === MIGRAÇÃO DE DADOS SE NECESSÁRIO ===
+            # === APLICAR MIGRAÇÕES ===
             self._aplicar_migracoes(cursor)
+            
+            # === INSERIR DADOS INICIAIS SE NECESSÁRIO ===
+            self._inserir_dados_iniciais(cursor)
             
             conn.commit()
             print("✅ Banco de dados inicializado com sucesso!")
@@ -142,7 +150,7 @@ class DatabaseConnection:
             
             colunas_necessarias = [
                 'valor_mensalidade',
-                'desconto_fixo',
+                'desconto_fixo', 
                 'multa_por_dia',
                 'dias_carencia_multa',
                 'data_matricula'
@@ -161,13 +169,36 @@ class DatabaseConnection:
                     
                     print(f"✅ Coluna {coluna} adicionada à tabela alunos")
             
-            # Verificar e criar tabela de histórico se não existir
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='historico_transferencias'")
-            if not cursor.fetchone():
-                print("📋 Criando tabela de histórico de transferências...")
-            
         except sqlite3.Error as e:
             print(f"⚠️ Aviso durante migração: {e}")
+    
+    def _inserir_dados_iniciais(self, cursor):
+        """Insere dados iniciais se necessário"""
+        try:
+            # Verificar se existem turmas
+            cursor.execute("SELECT COUNT(*) FROM turmas")
+            if cursor.fetchone()[0] == 0:
+                print("📋 Inserindo turmas iniciais...")
+                
+                turmas_iniciais = [
+                    ("1º Ano A", "1º Ano", "2025"),
+                    ("1º Ano B", "1º Ano", "2025"),
+                    ("2º Ano A", "2º Ano", "2025"),
+                    ("2º Ano B", "2º Ano", "2025"),
+                    ("3º Ano A", "3º Ano", "2025"),
+                    ("3º Ano B", "3º Ano", "2025"),
+                    ("Pré-escola", "Infantil", "2025")
+                ]
+                
+                cursor.executemany("""
+                    INSERT INTO turmas (nome, serie, ano_letivo) 
+                    VALUES (?, ?, ?)
+                """, turmas_iniciais)
+                
+                print(f"✅ {len(turmas_iniciais)} turmas inseridas")
+                
+        except sqlite3.Error as e:
+            print(f"⚠️ Erro ao inserir dados iniciais: {e}")
 
 # Instância global do banco
 db = DatabaseConnection()
@@ -189,4 +220,41 @@ def criar_backup():
         
     except Exception as e:
         print(f"⚠️ Erro ao criar backup: {e}")
+        return False
+
+# Função para resetar tabela específica
+def reset_transferencias_table():
+    """Reseta tabela de transferências se houver problemas"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Drop e recria tabela
+        cursor.execute("DROP TABLE IF EXISTS historico_transferencias")
+        
+        cursor.execute("""
+            CREATE TABLE historico_transferencias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                aluno_id INTEGER NOT NULL,
+                turma_origem_id INTEGER,
+                turma_destino_id INTEGER,
+                motivo TEXT NOT NULL DEFAULT 'Transferência',
+                observacoes TEXT,
+                data_transferencia TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                tipo_transferencia TEXT DEFAULT 'TRANSFERENCIA',
+                usuario TEXT DEFAULT 'Sistema',
+                FOREIGN KEY (aluno_id) REFERENCES alunos (id),
+                FOREIGN KEY (turma_origem_id) REFERENCES turmas (id),
+                FOREIGN KEY (turma_destino_id) REFERENCES turmas (id)
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+        
+        print("✅ Tabela de transferências resetada com sucesso!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Erro ao resetar tabela: {e}")
         return False
