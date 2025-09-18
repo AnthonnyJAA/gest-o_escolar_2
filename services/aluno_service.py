@@ -33,12 +33,22 @@ class AlunoService:
         return turmas
     
     def salvar_aluno(self, aluno_data, responsaveis_data):
-        """Salva aluno com apenas valor da mensalidade"""
+        """Salva aluno e GERA MENSALIDADES AUTOMATICAMENTE"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
         try:
-            if 'id' in aluno_data:
+            is_edicao = 'id' in aluno_data
+            
+            if is_edicao:
+                # === EDIÇÃO DE ALUNO EXISTENTE ===
+                print(f"✏️ Editando aluno ID: {aluno_data['id']}")
+                
+                # Buscar valor antigo para comparação
+                cursor.execute("SELECT valor_mensalidade FROM alunos WHERE id = ?", (aluno_data['id'],))
+                valor_antigo_row = cursor.fetchone()
+                valor_antigo = valor_antigo_row[0] if valor_antigo_row else 0
+                
                 # Atualizar aluno existente
                 cursor.execute("""
                     UPDATE alunos 
@@ -62,12 +72,34 @@ class AlunoService:
                 
                 # Remover responsáveis antigos
                 cursor.execute("DELETE FROM responsaveis WHERE aluno_id = ?", (aluno_id,))
+                
+                # Se valor mudou, atualizar mensalidades pendentes
+                if abs(float(valor_antigo) - float(aluno_data['valor_mensalidade'])) > 0.01:
+                    print(f"💰 Valor mudou: R$ {valor_antigo:.2f} → R$ {aluno_data['valor_mensalidade']:.2f}")
+                    conn.commit()  # Commit das alterações do aluno primeiro
+                    
+                    # Atualizar mensalidades pendentes
+                    from services.mensalidade_service import MensalidadeService
+                    mensalidade_service = MensalidadeService()
+                    
+                    resultado_atualizacao = mensalidade_service.atualizar_valores_mensalidades_pendentes(
+                        aluno_id, aluno_data['valor_mensalidade']
+                    )
+                    
+                    if resultado_atualizacao['success']:
+                        print(f"✅ {resultado_atualizacao['mensalidades_atualizadas']} mensalidades atualizadas")
+                    else:
+                        print(f"⚠️ Erro ao atualizar mensalidades: {resultado_atualizacao['error']}")
+                
             else:
+                # === CRIAÇÃO DE NOVO ALUNO ===
+                print(f"👤 Criando novo aluno: {aluno_data['nome']}")
+                
                 # Criar novo aluno
                 cursor.execute("""
                     INSERT INTO alunos (nome, data_nascimento, cpf, sexo, nacionalidade, telefone, 
-                                       endereco, turma_id, status, valor_mensalidade)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       endereco, turma_id, status, valor_mensalidade, data_matricula)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'))
                 """, (
                     aluno_data['nome'],
                     aluno_data['data_nascimento'],
@@ -81,6 +113,8 @@ class AlunoService:
                     aluno_data['valor_mensalidade']
                 ))
                 aluno_id = cursor.lastrowid
+                
+                print(f"✅ Aluno criado com ID: {aluno_id}")
             
             # Salvar responsáveis
             for i, resp in enumerate(responsaveis_data):
@@ -93,11 +127,42 @@ class AlunoService:
             conn.commit()
             conn.close()
             
+            # === GERAR MENSALIDADES PARA NOVO ALUNO ===
+            if not is_edicao and aluno_data.get('status', '').lower() == 'ativo':
+                print(f"💰 Gerando mensalidades para novo aluno...")
+                
+                try:
+                    from services.mensalidade_service import MensalidadeService
+                    mensalidade_service = MensalidadeService()
+                    
+                    resultado_mensalidades = mensalidade_service.gerar_mensalidades_aluno(aluno_id)
+                    
+                    if resultado_mensalidades['success']:
+                        mensalidades_criadas = resultado_mensalidades.get('mensalidades_criadas', 0)
+                        print(f"🎉 {mensalidades_criadas} mensalidades criadas automaticamente!")
+                    else:
+                        print(f"⚠️ Erro ao gerar mensalidades: {resultado_mensalidades.get('error', 'Erro desconhecido')}")
+                        
+                except ImportError:
+                    print("⚠️ Serviço de mensalidades não disponível")
+                except Exception as e:
+                    print(f"⚠️ Erro ao gerar mensalidades: {e}")
+            
+            acao = "atualizado" if is_edicao else "cadastrado"
+            print(f"✅ Aluno {acao} com sucesso: {aluno_data['nome']}")
+            
             return {'success': True, 'id': aluno_id}
             
         except sqlite3.Error as e:
             conn.rollback()
             conn.close()
+            print(f"❌ Erro SQL ao salvar aluno: {e}")
+            return {'success': False, 'error': str(e)}
+        
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            print(f"❌ Erro geral ao salvar aluno: {e}")
             return {'success': False, 'error': str(e)}
     
     def listar_alunos(self, turma_id=None):
@@ -149,7 +214,7 @@ class AlunoService:
         return alunos
     
     def buscar_aluno_por_id(self, aluno_id):
-        """Busca aluno completo com responsáveis (simplificado)"""
+        """Busca aluno completo com responsáveis"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
@@ -185,7 +250,7 @@ class AlunoService:
         
         conn.close()
         
-        # Montar dados do aluno (simplificado)
+        # Montar dados do aluno
         aluno = {
             'id': aluno_row[0],
             'nome': aluno_row[1],
@@ -216,6 +281,9 @@ class AlunoService:
             
             # Excluir pagamentos
             cursor.execute("DELETE FROM pagamentos WHERE aluno_id = ?", (aluno_id,))
+            
+            # Excluir histórico de transferências
+            cursor.execute("DELETE FROM historico_transferencias WHERE aluno_id = ?", (aluno_id,))
             
             # Excluir aluno
             cursor.execute("DELETE FROM alunos WHERE id = ?", (aluno_id,))
@@ -260,102 +328,6 @@ class AlunoService:
         conn.close()
         return historico
     
-    def gerar_mensalidades_aluno(self, aluno_id):
-        """Gera mensalidades automáticas com nova lógica (sem retroativas)"""
-        try:
-            print(f"🔄 Iniciando geração de mensalidades para aluno ID: {aluno_id}")
-            
-            from services.mensalidade_service import MensalidadeService
-            
-            mensalidade_service = MensalidadeService()
-            resultado = mensalidade_service.gerar_mensalidades_aluno(aluno_id)
-            
-            if resultado['success']:
-                mensalidades_criadas = resultado.get('mensalidades_criadas', 0)
-                periodo = f"{resultado.get('mes_inicio', '')} a Dezembro/{resultado.get('ano_referencia', '')}"
-                print(f"✅ {mensalidades_criadas} mensalidades criadas ({periodo})")
-            else:
-                print(f"❌ Erro ao gerar mensalidades: {resultado.get('error', 'Erro desconhecido')}")
-                
-            return resultado
-        except Exception as e:
-            erro_msg = f"Erro inesperado ao gerar mensalidades: {str(e)}"
-            print(f"❌ {erro_msg}")
-            return {'success': False, 'error': erro_msg}
-
-    def regenerar_mensalidades_aluno(self, aluno_id):
-        """Regenera mensalidades quando aluno é editado"""
-        try:
-            print(f"🔄 Regenerando mensalidades para aluno ID: {aluno_id}")
-            
-            from services.mensalidade_service import MensalidadeService
-            
-            mensalidade_service = MensalidadeService()
-            resultado = mensalidade_service.regenerar_mensalidades_aluno(aluno_id)
-            
-            if resultado['success']:
-                removidas = resultado.get('mensalidades_removidas', 0)
-                criadas = resultado.get('mensalidades_criadas', 0)
-                print(f"✅ Mensalidades regeneradas: {removidas} removidas, {criadas} criadas")
-            else:
-                print(f"❌ Erro ao regenerar mensalidades: {resultado.get('error', 'Erro desconhecido')}")
-                
-            return resultado
-        except Exception as e:
-            erro_msg = f"Erro inesperado ao regenerar mensalidades: {str(e)}"
-            print(f"❌ {erro_msg}")
-            return {'success': False, 'error': erro_msg}
-    
-    def obter_resumo_aluno(self, aluno_id):
-        """Obtém resumo completo do aluno incluindo dados financeiros"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # Dados básicos do aluno
-            aluno = self.buscar_aluno_por_id(aluno_id)
-            if not aluno:
-                return None
-            
-            # Estatísticas de mensalidades
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_mensalidades,
-                    COUNT(CASE WHEN status = 'Pago' THEN 1 END) as pagas,
-                    COUNT(CASE WHEN status = 'Pendente' THEN 1 END) as pendentes,
-                    COUNT(CASE WHEN status = 'Atrasado' THEN 1 END) as atrasadas,
-                    SUM(valor_original) as valor_total_original,
-                    SUM(CASE WHEN status = 'Pago' THEN valor_final ELSE 0 END) as valor_pago,
-                    SUM(CASE WHEN status != 'Pago' THEN valor_final ELSE 0 END) as valor_devido,
-                    SUM(desconto_aplicado) as total_descontos,
-                    SUM(multa_aplicada) as total_multas
-                FROM pagamentos
-                WHERE aluno_id = ?
-            """, (aluno_id,))
-            
-            stats = cursor.fetchone()
-            
-            if stats:
-                aluno['estatisticas_financeiras'] = {
-                    'total_mensalidades': stats[0] or 0,
-                    'pagas': stats[1] or 0,
-                    'pendentes': stats[2] or 0,
-                    'atrasadas': stats[3] or 0,
-                    'valor_total_original': stats[4] or 0,
-                    'valor_pago': stats[5] or 0,
-                    'valor_devido': stats[6] or 0,
-                    'total_descontos': stats[7] or 0,
-                    'total_multas': stats[8] or 0
-                }
-            
-            conn.close()
-            return aluno
-            
-        except Exception as e:
-            conn.close()
-            print(f"Erro ao obter resumo do aluno: {e}")
-            return None
-    
     def buscar_alunos_por_turma(self, turma_id):
         """Busca todos os alunos de uma turma específica"""
         return self.listar_alunos(turma_id)
@@ -381,41 +353,6 @@ class AlunoService:
             conn.rollback()
             conn.close()
             return {'success': False, 'error': str(e)}
-    
-    def buscar_aniversariantes_mes(self, mes=None):
-        """Busca alunos aniversariantes do mês"""
-        if mes is None:
-            mes = date.today().month
-        
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute("""
-                SELECT a.nome, a.data_nascimento, t.nome as turma_nome
-                FROM alunos a
-                INNER JOIN turmas t ON a.turma_id = t.id
-                WHERE strftime('%m', a.data_nascimento) = ?
-                AND a.status = 'Ativo'
-                ORDER BY strftime('%d', a.data_nascimento)
-            """, (f"{mes:02d}",))
-            
-            aniversariantes = []
-            for row in cursor.fetchall():
-                aniversariantes.append({
-                    'nome': row[0],
-                    'data_nascimento': row[1],
-                    'turma_nome': row[2],
-                    'idade': calculate_age(row[1])
-                })
-            
-            conn.close()
-            return aniversariantes
-            
-        except Exception as e:
-            conn.close()
-            print(f"Erro ao buscar aniversariantes: {e}")
-            return []
     
     def obter_estatisticas_gerais(self):
         """Obtém estatísticas gerais dos alunos"""
@@ -477,3 +414,12 @@ class AlunoService:
                 'total_alunos': 0, 'alunos_ativos': 0, 'alunos_inativos': 0,
                 'media_idade': 0, 'alunos_por_turma': []
             }
+    
+    def verificar_mensalidades_aluno(self, aluno_id):
+        """Verifica se aluno tem mensalidades geradas"""
+        try:
+            from services.mensalidade_service import MensalidadeService
+            mensalidade_service = MensalidadeService()
+            return mensalidade_service.verificar_mensalidades_aluno(aluno_id)
+        except:
+            return {'total': 0, 'pagas': 0, 'pendentes': 0}
